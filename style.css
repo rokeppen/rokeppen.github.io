@@ -10,8 +10,10 @@ body {
     text-align: center;
 }
 .word-container {
-    font-size: clamp(2vh, 10rem, 6vh);
+    font-size: clamp(2vh, 10rem, 5vh);
     margin-bottom: 3rem;
+    word-wrap: break-word;
+    max-width: 100%;
 }
 .buttons {
     position: fixed;
