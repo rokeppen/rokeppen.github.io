@@ -10,21 +10,34 @@ body {
     text-align: center;
 }
 .word-container {
-    font-size: 3rem;
-    margin-bottom: 2rem;
+    font-size: 10rem;
+    margin-bottom: 3rem;
 }
 .buttons {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
     display: flex;
+    justify-content: center;
     gap: 2rem;
 }
 button {
-    font-size: 2rem;
+    font-size: 5rem;
+    font-weight: bold;
     padding: 1rem 2rem;
     cursor: pointer;
+    flex: 1;
 }
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+#correct {
+    background-color: #c8f7c5;
+}
+#wrong {
+    background-color: #f7c5c5;
 }
 #question, #answer {
     display: none;
