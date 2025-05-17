@@ -10,7 +10,7 @@ body {
     text-align: center;
 }
 .word-container {
-    font-size: 10rem;
+    font-size: clamp(2vh, 10rem, 6vh);
     margin-bottom: 3rem;
 }
 .buttons {
