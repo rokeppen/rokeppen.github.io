@@ -1,5 +1,5 @@
 {
-  "2026-01-01": {
+  "01/01/2026": {
     "question": "Hoeveel blokjes zaten er in de Artemis-legoset die we gemaakt hebben?",
     "options": {
       "a": "748",
@@ -10,7 +10,7 @@
     "answer": "b",
     "giftNumber": 3
   },
-  "2026-01-03": {
+  "03/01/2026": {
     "question": "Welk product heeft nutri-score B?",
     "options": {
       "a": "Over baked mediterranian herbs Lay's",
@@ -21,7 +21,7 @@
     "answer": "a",
     "giftNumber": 6
   },
-  "2026-01-05": {
+  "05/01/2026": {
     "question": "Op welke reisbestemming gaat Laurine het het warmste hebben?",
     "options": {
       "a": "Bangkok, Thailand",
@@ -32,7 +32,7 @@
     "answer": "b",
     "giftNumber": 1
   },
-  "2026-01-07": {
+  "07/01/2026": {
     "question": "Wat is de oppervlakte van een kwart van een cirkel met diameter 8 cm?",
     "options": {
       "a": "8π cm²",
@@ -43,112 +43,112 @@
     "answer": "d",
     "giftNumber": 13
   },
-  "2026-01-09": {
-    "question": "",
+  "09/01/2026": {
+    "question": "Wat is het chemische symbool van goud?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Au",
+      "b": "Ga",
+      "c": "Ge",
+      "d": "Ag"
     },
     "answer": "a",
     "giftNumber": 11
   },
-  "2026-01-11": {
-    "question": "",
+  "11/01/2026": {
+    "question": "Voor welk zintuig is de nervus olfactorius verantwoordelijk?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Evenwichtszin",
+      "b": "Reukzin",
+      "c": "Smaakzin",
+      "d": "Proprioceptie"
     },
     "answer": "b",
     "giftNumber": 7
   },
-  "2026-01-13": {
-    "question": "",
+  "13/01/2026": {
+    "question": "Vanwaar is de golden retriever afkomstig?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Canada",
+      "b": "Oostenrijk",
+      "c": "Ierland",
+      "d": "Schotland"
     },
     "answer": "d",
     "giftNumber": 10
   },
-  "2026-01-15": {
-    "question": "",
+  "15/01/2026": {
+    "question": "In welk land mocht Laurine als laatste een pintje kopen?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "België",
+      "b": "Ijsland",
+      "c": "VS",
+      "d": "Duitsland"
     },
     "answer": "c",
     "giftNumber": 2
   },
-  "2026-01-17": {
-    "question": "",
+  "17/01/2026": {
+    "question": "Wie is de rijkste persoon ter wereld?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Jeff Bezos",
+      "b": "Larry Page",
+      "c": "Elon Musk",
+      "d": "Mark Zuckerberg"
     },
     "answer": "c",
     "giftNumber": 14
   },
-  "2026-01-19": {
-    "question": "",
+  "19/01/2026": {
+    "question": "Welk ingrediënt heb je niet nodig om chocomousse te maken?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Eieren",
+      "b": "Boter",
+      "c": "Chocolade",
+      "d": "Suiker"
     },
     "answer": "b",
     "giftNumber": 12
   },
-  "2026-01-21": {
-    "question": "",
+  "21/01/2026": {
+    "question": "Hoe heet de angst voor kleur?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Chromofobie",
+      "b": "Catoptrofobie",
+      "c": "Cherofobie",
+      "d": "Coprofobie"
     },
     "answer": "a",
     "giftNumber": 5
   },
-  "2026-01-23": {
-    "question": "",
+  "23/01/2026": {
+    "question": "Op welke plaats zijn we nog niet samen geweest?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Monterosso",
+      "b": "Porto Torres",
+      "c": "Vilamoura",
+      "d": "Portimão"
     },
     "answer": "c",
     "giftNumber": 9
   },
-  "2026-01-25": {
-    "question": "",
+  "25/01/2026": {
+    "question": "Rond welk monster draait de bekendste roman van Mary Shelley?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "Frankenstein",
+      "b": "Loch Ness",
+      "c": "Dracula",
+      "d": "Bigfoot"
     },
     "answer": "a",
     "giftNumber": 8
   },
-  "2026-01-27": {
-    "question": "",
+  "27/01/2026": {
+    "question": "Hoeveel liter melk geeft een koe gemiddeld per dag?",
     "options": {
-      "a": "",
-      "b": "",
-      "c": "",
-      "d": ""
+      "a": "50 liter",
+      "b": "10 liter",
+      "c": "5 liter",
+      "d": "25 liter"
     },
     "answer": "d",
     "giftNumber": 4

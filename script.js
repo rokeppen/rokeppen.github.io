@@ -6,12 +6,17 @@ function getTodayQuestion() {
     fetch("questions.json").then(r => r.json())
         .then(questions => {
             const dayParam = new URLSearchParams(window.location.search).get("day");
-            const todayKey = dayParam || new Date().toLocaleDateString();
+            const todayKey = dayParam || new Date().toLocaleDateString('nl-BE', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+            console.log(`Looking up day ${todayKey}`);
             const question = questions[todayKey];
             if (question) {
                 loadQuestion(question)
             } else {
-                location.href = "shame.html";
+                showNoGift();
             }
         })
 }
@@ -48,5 +53,14 @@ function showAnswer(giftNumber) {
         <div class="answer-message">
             Juist, je verdient cadeautje ${giftNumber}!
         </div>
+    `));
+}
+
+function showNoGift() {
+    const card = $(".card");
+    card.empty(); // remove all current content
+    card.append($(`
+        <h1 id="questionText">Helaas, geen cadeautje vandaag!</h1>
+        <img src="shame.png" alt="Helaas">
     `));
 }
