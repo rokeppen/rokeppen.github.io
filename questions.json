@@ -1,0 +1,13 @@
+{
+  "2026-01-01": {
+    "question": "What is the capital of Belgium?",
+    "options": {
+      "a": "Paris",
+      "b": "Brussels",
+      "c": "Amsterdam",
+      "d": "Berlin"
+    },
+    "answer": "b",
+    "giftNumber": 5
+  }
+}

@@ -1,59 +1,52 @@
-let wordPairs = new Map();
+$(document).ready(function () {
+    getTodayQuestion()
+});
 
-window.onload = function() {
-    getWords()
-};
+function getTodayQuestion() {
+    fetch("questions.json").then(r => r.json())
+        .then(questions => {
+            const dayParam = new URLSearchParams(window.location.search).get("day");
+            const todayKey = dayParam || new Date().toLocaleDateString();
+            const question = questions[todayKey];
+            if (question) {
+                loadQuestion(question)
+            } else {
+                location.href = "shame.html";
+            }
+        })
+}
 
-function getWords() {
-    fetch("/words.csv").then(r => r.text()).then(text => {
-        let lines = text.trim().split("\n");
-        shuffleArray(lines);
-        lines.forEach(line => {
-            const [key, value] = line.split(";");
-            wordPairs.set(key.trim(), value.trim());
+function loadQuestion(question) {
+    $("#questionText").text(question.question);
+    const container = $("#optionsContainer");
+    container.empty();
+
+    Object.entries(question.options).forEach(([key, value]) => {
+        const btn = $(`
+            <button class="option-btn" data-key="${key}">
+                <span class="option-key">${key.toUpperCase()}</span>
+                <span class="option-text">${value}</span>
+            </button>
+        `);
+
+        btn.on("click", function () {
+            if ($(this).data("key") === question.answer) {
+                showAnswer(question.giftNumber);
+            } else {
+                $(this).addClass("wrong");
+            }
         });
-    }).then(pickRandom)
+
+        container.append(btn);
+    });
 }
 
-function shuffleArray(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-        let j = Math.floor(Math.random() * (i + 1));
-        let temp = array[i];
-        array[i] = array[j];
-        array[j] = temp;
-    }
-}
-
-function getRandomKey(collection) {
-    let keys = Array.from(collection.keys());
-    const index = Math.floor(Math.random() * keys.length);
-    return keys[index];
-}
-
-function pickRandom() {
-    if (wordPairs.size === 0) {
-        $("#word").html("Je hebt alles juist!");
-        $("#answer").hide()
-    } else {
-        const key = getRandomKey(wordPairs)
-        $("#word").html(key);
-        $("#question").show();
-        $("#answer").hide().html(wordPairs.get(key));
-    }
-    $("#correct").prop('disabled', true);
-    $("#wrong").prop('disabled', true);
-}
-
-function showAnswer() {
-    $("#answer").show();
-    $("#question").hide();
-    $("#correct").prop('disabled', false);
-    $("#wrong").prop('disabled', false);
-}
-
-function pickNext(correctGuess) {
-    if (correctGuess) {
-        wordPairs.delete($("#word").html());
-    }
-    pickRandom();
+function showAnswer(giftNumber) {
+    const card = $(".card");
+    card.empty(); // remove all current content
+    card.append($(`
+        <div class="answer-message">
+            Juist, je verdient cadeautje ${giftNumber}!
+        </div>
+    `));
 }
