@@ -1,13 +1,156 @@
 {
   "2026-01-01": {
-    "question": "What is the capital of Belgium?",
+    "question": "Hoeveel blokjes zaten er in de Artemis-legoset die we gemaakt hebben?",
     "options": {
-      "a": "Paris",
-      "b": "Brussels",
-      "c": "Amsterdam",
-      "d": "Berlin"
+      "a": "748",
+      "b": "3601",
+      "c": "8475",
+      "d": "11478"
     },
     "answer": "b",
+    "giftNumber": 3
+  },
+  "2026-01-03": {
+    "question": "Welk product heeft nutri-score B?",
+    "options": {
+      "a": "Over baked mediterranian herbs Lay's",
+      "b": "Nutella",
+      "c": "Peperkoek Vondelmolen",
+      "d": "Magere yoghurt Everyday"
+    },
+    "answer": "a",
+    "giftNumber": 6
+  },
+  "2026-01-05": {
+    "question": "Op welke reisbestemming gaat Laurine het het warmste hebben?",
+    "options": {
+      "a": "Bangkok, Thailand",
+      "b": "Dubai, VAE",
+      "c": "Mumbai, India",
+      "d": "London, VK"
+    },
+    "answer": "b",
+    "giftNumber": 1
+  },
+  "2026-01-07": {
+    "question": "Wat is de oppervlakte van een kwart van een cirkel met diameter 8 cm?",
+    "options": {
+      "a": "8π cm²",
+      "b": "2π cm²",
+      "c": "π cm²",
+      "d": "4π cm²"
+    },
+    "answer": "d",
+    "giftNumber": 13
+  },
+  "2026-01-09": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "a",
+    "giftNumber": 11
+  },
+  "2026-01-11": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "b",
+    "giftNumber": 7
+  },
+  "2026-01-13": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "d",
+    "giftNumber": 10
+  },
+  "2026-01-15": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "c",
+    "giftNumber": 2
+  },
+  "2026-01-17": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "c",
+    "giftNumber": 14
+  },
+  "2026-01-19": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "b",
+    "giftNumber": 12
+  },
+  "2026-01-21": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "a",
     "giftNumber": 5
+  },
+  "2026-01-23": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "c",
+    "giftNumber": 9
+  },
+  "2026-01-25": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "a",
+    "giftNumber": 8
+  },
+  "2026-01-27": {
+    "question": "",
+    "options": {
+      "a": "",
+      "b": "",
+      "c": "",
+      "d": ""
+    },
+    "answer": "d",
+    "giftNumber": 4
   }
 }
