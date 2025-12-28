@@ -25,7 +25,6 @@ function loadQuestion(question) {
     $("#questionText").text(question.question);
     const container = $("#optionsContainer");
     container.empty();
-
     Object.entries(question.options).forEach(([key, value]) => {
         const btn = $(`
             <button class="option-btn" data-key="${key}">
@@ -33,7 +32,6 @@ function loadQuestion(question) {
                 <span class="option-text">${value}</span>
             </button>
         `);
-
         btn.on("click", function () {
             if ($(this).data("key") === question.answer) {
                 showAnswer(question.giftNumber);
@@ -41,26 +39,25 @@ function loadQuestion(question) {
                 $(this).addClass("wrong");
             }
         });
-
         container.append(btn);
     });
 }
 
 function showAnswer(giftNumber) {
     const card = $(".card");
-    card.empty(); // remove all current content
-    card.append($(`
+    card.empty();
+    card.append(`
         <div class="answer-message">
             Juist, je verdient cadeautje ${giftNumber}!
         </div>
-    `));
+    `);
 }
 
 function showNoGift() {
     const card = $(".card");
-    card.empty(); // remove all current content
-    card.append($(`
+    card.empty();
+    card.append(`
         <h1 id="questionText">Helaas, geen cadeautje vandaag!</h1>
         <img src="shame.png" alt="Helaas">
-    `));
+    `);
 }
