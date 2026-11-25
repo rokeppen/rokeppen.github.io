@@ -5,6 +5,7 @@ import { PALETTE, SIDE_WIDTH } from '../theme.js';
 import { weaponStats, upgradeCost } from '../logic/stats.js';
 import { label, icon } from './widgets.js';
 import { addCard } from './textures.js';
+import { cardTitle, cardHint } from '../logic/cards.js';
 
 const DEPTH = 10;
 // Vertical space the panel needs below the hand: header, card with stats, effect line and
@@ -78,11 +79,21 @@ export class TowerPanel {
     const { scene } = this;
     const tower = this.selectedTower();
     const pick = this.cardWeapon();
-    const sig = tower ? `t|${tower.id}|${tower.tier}` : pick ? `w|${pick.weaponId}|${pick.placing}` : 'help';
+    const pending = scene.pendingCard;
+    const targeting = pending && pending.kind !== 'build' ? pending : null;
+    const sig = targeting ? `c|${targeting.id}` : tower ? `t|${tower.id}|${tower.tier}`
+      : pick ? `w|${pick.weaponId}|${pick.placing}` : 'help';
     if (sig === this.shown) return;
     this.shown = sig;
     this.clear();
-    if (tower) {
+    if (targeting) {
+      // Upgrade or Sell waiting for a tower: say what to click (a sale can't be undone).
+      this.heading.setText('PLAYING');
+      this.add(label(scene, this.x, this.top, cardTitle(targeting, scene.weapons), { size: 15, bold: true }));
+      this.add(label(scene, this.x, this.top + 28, `${cardHint(targeting, scene.weapons)}\n\nRight-click or Esc to cancel.`, {
+        size: 13, color: PALETTE.goodText, wordWrap: { width: this.width },
+      }));
+    } else if (tower) {
       this.heading.setText('SELECTED');
       this.showTower(tower);
     } else if (pick) {

@@ -104,14 +104,21 @@ export class GameState {
 
   // Whether the card could be played now (some valid target exists).
   cardPlayable(card) {
-    if (this.over || this.cardPlayedThisTurn) return false;
-    if (card.kind === 'build') return this.hasBuildableTile();
+    return this.cardRefusal(card) === null;
+  }
+
+  // Why the card can't be played now (a reason code), or null when it can.
+  cardRefusal(card) {
+    if (this.over) return 'game-over';
+    if (this.cardPlayedThisTurn) return 'card-played';
+    if (card.kind === 'build') return this.hasBuildableTile() ? null : 'no-tile';
     if (card.kind === 'upgrade') {
-      return this.towers.some((t) => t.weaponId === card.weaponId
+      const ok = this.towers.some((t) => t.weaponId === card.weaponId
         && upgradeCost(this.weaponDefs.get(t.weaponId), t.tier) !== null);
+      return ok ? null : 'no-tower';
     }
-    if (card.kind === 'sell') return this.towers.length > 0;
-    return this.enemies.length > 0;
+    if (card.kind === 'sell') return this.towers.length > 0 ? null : 'no-towers';
+    return this.enemies.length > 0 ? null : 'no-guests';
   }
 
   hasBuildableTile() {

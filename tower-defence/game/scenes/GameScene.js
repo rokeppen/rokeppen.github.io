@@ -226,8 +226,9 @@ export class GameScene extends Phaser.Scene {
     const { state } = this;
     const card = state.hand.find((c) => c.id === cardId);
     if (!card) return;
-    if (!state.cardPlayable(card)) {
-      this.toastReason(state.cardPlayedThisTurn ? 'card-played' : 'no-target');
+    const refusal = state.cardRefusal(card);
+    if (refusal) {
+      this.toastReason(refusal);
       return;
     }
     if (card.kind === 'bell') {

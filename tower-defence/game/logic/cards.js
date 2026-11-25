@@ -67,3 +67,14 @@ export function cardIcon(card, weaponDefs) {
   const e = card.kind === 'sell' ? '💰' : '🔔';
   return { sprite: e, fallback: e };
 }
+
+// What to click for a pending card (the bell needs no target).
+export function cardHint(card, weaponDefs) {
+  if (card.kind === 'build') return 'Click a free floor tile to build.';
+  if (card.kind === 'upgrade') {
+    const name = weaponDefs.get(card.weaponId)?.name ?? card.weaponId;
+    return `Click one of your ${name} weapons to upgrade it.`;
+  }
+  if (card.kind === 'sell') return 'Click the weapon to sell. You get half its cost back.';
+  return '';
+}

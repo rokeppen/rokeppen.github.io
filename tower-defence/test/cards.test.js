@@ -226,3 +226,20 @@ test('how-to text for cards (no actions or bonus left)', async () => {
   assert.doesNotMatch(text, /3 actions|unused action|once per level/);
   assert.match(text, /one card per turn/i);
 });
+
+test('cardRefusal says why a card cannot be played now (null when it can)', () => {
+  const s = makeState({ waves: [[{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 20 }]] });
+  giveHand(s, [{ kind: 'build', weaponId: 'flat' }, { kind: 'upgrade', weaponId: 'up' },
+    { kind: 'sell' }, { kind: 'bell' }]);
+  assert.deepEqual(s.hand.map((c) => s.cardRefusal(c)), [null, 'no-tower', 'no-towers', 'no-guests']);
+  s.playCard(101, { x: 2, y: 0 });
+  assert.equal(s.cardRefusal(s.hand[0]), 'card-played');
+});
+
+test('cardHint tells the player what to click for a pending card', async () => {
+  const { cardHint } = await import('../game/logic/cards.js');
+  const defs = new Map([['up', up]]);
+  assert.equal(cardHint({ kind: 'build', weaponId: 'up' }, defs), 'Click a free floor tile to build.');
+  assert.equal(cardHint({ kind: 'upgrade', weaponId: 'up' }, defs), 'Click one of your Up weapons to upgrade it.');
+  assert.equal(cardHint({ kind: 'sell' }, defs), 'Click the weapon to sell. You get half its cost back.');
+});
