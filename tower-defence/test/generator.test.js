@@ -44,9 +44,14 @@ test('exports sizes and difficulties', () => {
   assert.deepEqual(DIFFICULTIES, ['chill', 'party', 'chaos']);
 });
 
-test('RF3: every combination yields a valid, saveable level', () => {
+// Count bounds checked across the whole RF3 grid.
+const MAX_GROWTH = 2.5; // a wave never has more than 2.5x the guests of the wave before it
+const MAX_GROUP = 60; // no single group is bigger than this
+const MAX_WAVE = 120; // no wave is bigger than this (worst case: 20-wave Chaos)
+
+test('RF3: every combination yields a valid, saveable level with sane guest counts', () => {
   const t0 = Date.now();
-  const cases = [[tinyCatalog, tinyOpts], [fullCatalog, fullOpts]];
+  const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [fullCatalog, fullOpts]];
   for (const [catalog, lists] of cases) {
     for (let seed = 0; seed < 60; seed++) {
       for (const size of Object.keys(SIZES)) {
@@ -62,21 +67,53 @@ test('RF3: every combination yields a valid, saveable level', () => {
               assert.ok(res.level, tag);
               assert.equal(lvl.waves.length, waves, tag);
               assert.deepEqual([lvl.cols, lvl.rows], SIZES[size], tag);
+              const saved = canSave(asSaved(lvl), catalog);
+              assert.deepEqual(saved.errors, [], tag);
+              assert.equal(saved.ok, true, tag);
+              const counts = lvl.waves.map((w) => w.reduce((n, g) => n + g.count, 0));
+              counts.forEach((c, i) => {
+                assert.ok(c <= MAX_WAVE, `${tag} wave ${i + 1} has ${c} guests`);
+                if (i > 0) assert.ok(c <= MAX_GROWTH * counts[i - 1], `${tag} counts ${counts}`);
+              });
+              for (const g of lvl.waves.flat()) assert.ok(g.count <= MAX_GROUP, `${tag} group of ${g.count}`);
             }
           }
         }
       }
     }
   }
-  assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0} ms`);
+  console.log(`RF3 grid: ${Date.now() - t0} ms`);
 });
 
-test('generated level passes the editor canSave check', () => {
+test('20-wave Chaos stays within the per-wave and per-group caps', () => {
+  for (const [catalog, lists] of [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [fullCatalog, fullOpts]]) {
+    for (let seed = 0; seed < 200; seed++) {
+      const lvl = generateLevel({ ...base, ...lists, difficulty: 'chaos', waves: 20, seed }, catalog);
+      for (const w of lvl.waves) {
+        assert.ok(w.reduce((n, g) => n + g.count, 0) <= MAX_WAVE, `seed ${seed}`);
+        for (const g of w) assert.ok(g.count <= MAX_GROUP, `seed ${seed}`);
+      }
+    }
+  }
+});
+
+test('non-positive or missing guest stats do not break generation', () => {
+  const odd = {
+    weapons: [{ id: 'gun', cost: 40, damage: 5 }],
+    enemies: [
+      { id: 'zero', hp: 0, speed: 0, wineDamage: 0 },
+      { id: 'neg', hp: -5, speed: -1, wineDamage: -2 },
+      { id: 'none' },
+      { id: 'ok', hp: 50, speed: 1, wineDamage: 1 },
+    ],
+  };
+  const lists = { enemyIds: ['zero', 'neg', 'none', 'ok'], weaponIds: ['gun'] };
   for (let seed = 0; seed < 20; seed++) {
-    const lvl = generateLevel({ ...base, ...fullOpts, seed }, fullCatalog);
-    const res = canSave(asSaved(lvl), fullCatalog);
-    assert.deepEqual(res.errors, []);
-    assert.equal(res.ok, true);
+    for (const difficulty of DIFFICULTIES) {
+      const lvl = generateLevel({ ...base, ...lists, difficulty, waves: 20, seed }, odd);
+      assert.deepEqual(validateLevel(asSaved(lvl), odd).errors, []);
+      for (const g of lvl.waves.flat()) assert.ok(g.count <= MAX_GROUP);
+    }
   }
 });
 

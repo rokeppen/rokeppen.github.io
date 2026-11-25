@@ -214,7 +214,11 @@ function makeBlocked(rng, cols, rows, path) {
 
 // ---------- waves ----------
 
-const toughness = (e) => num(e.hp, 1) * num(e.speed, 1) * num(e.wineDamage, 1);
+// Raw catalog stats may be missing, zero or negative: hp counts as at least 1, and a
+// non-positive speed or wineDamage counts as 1.
+const positive = (v) => (num(v, 0) > 0 ? v : 1);
+const hpOf = (e) => Math.max(1, num(e.hp, 1));
+const toughness = (e) => hpOf(e) * positive(e.speed) * positive(e.wineDamage);
 const round = (v, step) => Math.round(v / step) * step;
 
 // Wave index from which each guest may appear: the easier half from wave 0, the tougher
@@ -230,31 +234,61 @@ function unlockWaves(guests, n) {
   }));
 }
 
+// Each wave spends an HP budget that grows linearly: budget(i) = unit * (1 + 0.3 i), with
+// unit = 4 * difficulty multiplier * hp of the filler guest (the lightest guest available
+// from wave 0). The budget goes to up to three groups:
+//   anchor - the heaviest unlocked guest that fits in 80% of the budget, ~30-55% of it;
+//   middle - sometimes another fitting guest, ~15-30% of it;
+//   filler - the rest, rounded up, so the wave's HP lies in [budget, budget + filler hp).
+// The budget step (1.2 * multiplier * filler hp) is larger than that rounding, so the total HP
+// grows every wave, and guest counts stay close to budget / hp (at most ~52 filler guests).
 function makeWaves(rng, guests, n, tune) {
   const unlocks = unlockWaves(guests, n);
+  const lightest = (list) => list.reduce((a, b) => (hpOf(b) < hpOf(a) ? b : a));
+  const heaviest = (list) => list.reduce((a, b) => (hpOf(b) > hpOf(a) ? b : a));
+  const filler = lightest(unlocks.filter((u) => u.from === 0).map((u) => u.guest));
+  const unit = 4 * tune.guests * hpOf(filler);
+  // Shares are per level (not per wave) so a group's count never drops while the same guest
+  // holds that role; that keeps wave sizes smooth.
+  const anchorShare = 0.3 + 0.2 * rng();
+  const middleShare = 0.1 + 0.15 * rng();
   const waves = [];
-  let prevHp = 0;
   for (let i = 0; i < n; i++) {
+    // A fixed number of draws per wave keeps the draw sequence the same across difficulties.
+    const rJitter = [rng(), rng(), rng()];
+    const budget = unit * (1 + 0.3 * i);
     const pool = unlocks.filter((u) => u.from <= i).map((u) => u.guest);
-    const fresh = unlocks.filter((u) => u.from === i && i > 0).map((u) => u.guest);
-    const groupCount = 1 + pickInt(rng, Math.min(3, pool.length));
-    const chosen = [...fresh, ...shuffle(rng, pool.filter((g) => !fresh.includes(g)))].slice(0, Math.max(groupCount, Math.min(fresh.length, 3)));
-    const weights = chosen.map(() => 0.5 + rng());
-    const weightSum = weights.reduce((s, x) => s + x, 0);
-    const total = tune.guests * (4 + 1.2 * i);
+    const fitting = pool.filter((g) => g !== filler && hpOf(g) <= 0.8 * budget);
+    const anchor = fitting.length ? heaviest(fitting) : null;
+    const others = fitting.filter((g) => g !== anchor);
+    const middle = others.length ? heaviest(others) : null;
+
+    const parts = [];
+    let left = budget;
+    if (anchor) {
+      const hp = hpOf(anchor);
+      const count = Math.min(Math.floor((0.8 * budget) / hp), Math.max(1, Math.round((anchorShare * budget) / hp)));
+      parts.push({ guest: anchor, count });
+      left -= count * hp;
+    }
+    if (middle) {
+      const hp = hpOf(middle);
+      const count = Math.min(Math.floor(left / hp), Math.round((middleShare * budget) / hp));
+      if (count >= 1) {
+        parts.push({ guest: middle, count });
+        left -= count * hp;
+      }
+    }
+    const fillCount = Math.ceil(left / hpOf(filler) - 1e-9);
+    if (fillCount >= 1 || parts.length === 0) parts.unshift({ guest: filler, count: Math.max(1, fillCount) });
+
     const slowdown = 1 - (0.3 * i) / Math.max(1, n - 1);
-    const wave = chosen.map((g, k) => ({
-      enemyId: g.id,
-      count: Math.max(1, Math.round((total * weights[k]) / weightSum)),
-      intervalS: Math.max(0.2, round(tune.interval * (0.85 + 0.3 * rng()) * slowdown, 0.05)),
+    const wave = parts.map((p, k) => ({
+      enemyId: p.guest.id,
+      count: p.count,
+      intervalS: Math.max(0.2, round(tune.interval * (0.85 + 0.3 * rJitter[k]) * slowdown, 0.05)),
       delayS: 0,
     }));
-    // Total HP must grow every wave: add the toughest group's guests until it does.
-    const hpOf = (gr) => num(guests.find((g) => g.id === gr.enemyId).hp, 1);
-    const hpTotal = () => wave.reduce((s, gr) => s + gr.count * hpOf(gr), 0);
-    const heaviest = wave.reduce((a, b) => (hpOf(b) > hpOf(a) ? b : a));
-    while (hpTotal() <= prevHp) heaviest.count += 1;
-    prevHp = hpTotal();
     // Groups overlap a little: each starts when the previous one is ~60% through.
     for (let k = 1; k < wave.length; k++) {
       const p = wave[k - 1];
