@@ -58,7 +58,7 @@
       "id": "cafe",
       "name": "Café",
       "description": "A little Belgian pub corner. One guest cannot resist a trappist and sits down for a good long while.",
-      "sprite": "🍻",
+      "sprite": "🪑",
       "cost": 100,
       "range": 3,
       "damage": 3,
@@ -79,7 +79,7 @@
           "fireRate": 0.65
         }
       ],
-      "fallbackSprite": "🍻"
+      "fallbackSprite": "🪑"
     },
     {
       "id": "pizza-hut",

@@ -1,7 +1,8 @@
 // snake_case DB rows <-> camelCase in-app shapes. The only place that converts.
 
-// A sprite is an image URL when it starts with http(s)://, otherwise it is an emoji.
-export const isUrl = (s) => typeof s === 'string' && /^https?:\/\//.test(s);
+// A sprite is an image URL when it starts with http(s):// (any case), otherwise it is an emoji.
+// The one definition: the game (sprites-data.js) and the admin reuse it.
+export const isUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s);
 
 export const DEFAULT_GUEST_SPRITE = '👤';
 export const DEFAULT_WEAPON_SPRITE = '❔';

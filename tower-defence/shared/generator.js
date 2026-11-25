@@ -296,6 +296,20 @@ function makeWaves(rng, guests, n, tune) {
 
 // ---------- level ----------
 
+// Kegs drained if every guest in every wave reaches the bar (what GameState subtracts per leak).
+function totalWineDamage(waves, guests) {
+  const damage = new Map(guests.map((g) => [g.id, num(g.wineDamage, 0)]));
+  return waves.flat().reduce((sum, gr) => sum + gr.count * (damage.get(gr.enemyId) ?? 0), 0);
+}
+
+// The difficulty's kegs, but never so many that a short level (few guests) can be won without
+// placing a single weapon: at most 2/3 of the kegs all guests together would drain.
+function startingWineFor(tune, waves, guests) {
+  const total = totalWineDamage(waves, guests);
+  if (total < 1) return tune.wine; // guests that drain nothing: no keg count makes it losable
+  return Math.min(tune.wine, Math.max(1, Math.floor((total * 2) / 3)));
+}
+
 export function generateLevel(opts, catalog) {
   const check = canGenerate(opts, catalog);
   if (!check.ok) throw new Error(check.reason);
@@ -323,7 +337,7 @@ export function generateLevel(opts, catalog) {
     weaponIds: weapons.map((w) => w.id),
     waves,
     startingCorks,
-    startingWine: tune.wine,
+    startingWine: startingWineFor(tune, waves, guests),
     barSprite: '🍻',
   };
 }

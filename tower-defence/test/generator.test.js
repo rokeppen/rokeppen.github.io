@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { isPathValid, validateLevel } from '../shared/model.js';
 import { canSave } from '../admin/editor-state.js';
+import { GameState } from '../game/logic/state.js';
 import {
   SIZES, DIFFICULTIES, canGenerate, generateLevel, randomSeed,
 } from '../shared/generator.js';
@@ -258,6 +259,38 @@ test('the toughest guest only appears in the later half of the waves', () => {
     const lvl = generateLevel({ ...base, ...fullOpts, waves: 6, seed }, fullCatalog);
     assert.ok(!lvl.waves[0].some((g) => g.enemyId === toughest));
   }
+});
+
+// Plays a level with no towers: start every wave as soon as it can, until won or lost.
+function playWithoutTowers(lvl, catalog) {
+  const game = new GameState(lvl, catalog, { rng: () => 0.5 });
+  for (let i = 0; i < 20000 && !game.over; i++) {
+    if (game.phase === 'build') game.startNextWave();
+    game.tick(0.25);
+  }
+  return game.phase;
+}
+
+test('short levels cannot be won without placing a weapon', () => {
+  const t0 = Date.now();
+  const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]];
+  for (const [catalog, lists] of cases) {
+    for (let seed = 0; seed < 10; seed++) {
+      for (const size of Object.keys(SIZES)) {
+        for (const difficulty of DIFFICULTIES) {
+          for (const waves of [1, 2]) {
+            const opts = { ...lists, size, difficulty, twistiness: 0.5, waves, seed: seed * 7919 + 13 };
+            const lvl = generateLevel(opts, catalog);
+            const maxWine = { chill: 20, party: 12, chaos: 8 }[difficulty];
+            assert.ok(Number.isInteger(lvl.startingWine) && lvl.startingWine >= 1 && lvl.startingWine <= maxWine);
+            const phase = playWithoutTowers(lvl, catalog);
+            assert.equal(phase, 'lost', JSON.stringify({ guests: lists.enemyIds, size, difficulty, waves, seed: opts.seed }));
+          }
+        }
+      }
+    }
+  }
+  console.log(`no-tower runs: ${Date.now() - t0} ms`);
 });
 
 test('starting resources', () => {

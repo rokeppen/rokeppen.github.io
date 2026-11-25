@@ -5,6 +5,7 @@ import { isImageSprite, textureKey, collectImageUrls } from '../game/sprites-dat
 test('isImageSprite detects http(s) URLs only', () => {
   assert.equal(isImageSprite('http://x.test/a.png'), true);
   assert.equal(isImageSprite('https://x.test/a.png'), true);
+  assert.equal(isImageSprite('HTTPS://x.test/a.png'), true);
   assert.equal(isImageSprite('🍷'), false);
   assert.equal(isImageSprite(''), false);
   assert.equal(isImageSprite(undefined), false);

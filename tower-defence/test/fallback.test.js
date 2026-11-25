@@ -80,3 +80,11 @@ test('no player-facing string mentions wine tables, corks or Wine Tasting', () =
   for (const l of raw.levels) strings.push(l.name);
   for (const s of strings) assert.ok(!bad.test(s), s);
 });
+
+test("the Café's sprite is its own: not the beer bar's 🍻 nor the kegs' 🍺", () => {
+  const cafe = raw.weapons.find((w) => w.id === 'cafe');
+  const taken = new Set(['🍻', '🍺', ...raw.levels.map((l) => l.barSprite)]);
+  assert.ok(!taken.has(cafe.sprite), cafe.sprite);
+  assert.ok(!taken.has(cafe.fallbackSprite), cafe.fallbackSprite);
+  for (const w of raw.weapons.filter((x) => x.id !== 'cafe')) assert.notEqual(w.sprite, cafe.sprite, w.id);
+});

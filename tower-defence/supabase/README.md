@@ -10,7 +10,8 @@ One-time setup in the Supabase dashboard:
    `migrations/`; for this release that is `migrations/2026-11-25-beer-party.sql`.)
    One-step option for an existing project: run `upgrade-beer-party.sql` once (the
    migration followed by the seed; regenerate with `npm run upgrade-sql`).
-   `seed.sql` is generated from `fallback-data.json` with `npm run seed`.
+   `seed.sql` is generated from `fallback-data.json` with `npm run seed`. Re-running it
+   resets the bundled starter rows (see the warning under "Upgrade an existing project").
    Both `schema.sql` and the migration also create the public `sprites` Storage bucket
    (images up to 1 MB: PNG, JPEG, SVG, WebP) that only admins can upload to.
 2. Under **Authentication**, create a user with an email and password.
@@ -35,11 +36,23 @@ missing grant, no published levels, or a timeout).
 
 For a project that was set up before the beer-party release (it already ran `schema.sql`):
 
+> **Warning: the seed overwrites the bundled starter rows.** Running `upgrade-beer-party.sql`
+> (or `seed.sql`) resets these rows to the bundled version, **including Published and Order**:
+>
+> - weapons `out-of-office`, `coffee-machine`, `cafe`, `pizza-hut`, `hr-talk`
+> - guests `recruiter`, `sales-rep`, `quick-question`, `facilities-guy`, `wine-snob`
+> - levels `level-1`, `level-2`
+>
+> Any changes you made to them in the admin are lost. Save them first: in the admin, click
+> **Export JSON** (or copy the values), and re-apply them after the upgrade. Rows with other
+> ids are not touched.
+
 1. In the **SQL editor**, run `upgrade-beer-party.sql` once. It is the migration followed
    by `seed.sql`, in one file. (Equivalent: run `migrations/2026-11-25-beer-party.sql`, then
    `seed.sql`.) Both are safe to re-run. The migration gives every existing level a guest
    list (the guests its waves use) and swaps Wine Tasting for Café; the seed then upserts the
-   bundled weapons, guests and levels by id. Levels you made yourself keep their rows.
+   bundled weapons, guests and levels by id (see the warning above). Weapons, guests and
+   levels you made yourself keep their rows.
 2. Under **Storage**, check that the `sprites` bucket exists and is public. If it doesn't,
    the migration's bucket step didn't run: run the migration again.
 3. Open `play.html` with the browser console open and check it logs

@@ -6,6 +6,7 @@ import { PALETTE, FONT, EMOJI_FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../them
 import { loadStars, loadBest, howToSeen, markHowToSeen } from '../progress.js';
 import { isRightButton, label, icon, barIcon, Button } from '../ui/widgets.js';
 import { addBackground, addCard, CARD_PAD } from '../ui/textures.js';
+import { howToPlay } from '../how-to.js';
 
 const KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'];
 const ROWS = 5;
@@ -13,19 +14,6 @@ const TOP = 272;
 const STEP = 70;
 const BUTTON_H = 56;
 const OVERLAY_DEPTH = 100;
-
-// [icon, text]; an icon may be { weapon | enemy: id, fallback } to use that item's sprite.
-const HOW_TO_PLAY = [
-  ['🗺️', 'Place office weapons on the floor beside the carpet, never on it.'],
-  ['🚶', 'Uninvited guests walk the carpet to the beer bar 🍻 and drain your kegs 🍺.'],
-  ['🧢', 'Every guest escorted out pays bottle caps. Spend them on more weapons.'],
-  ['⬆️', 'Click a placed weapon to upgrade it, or sell it for half its cost.'],
-  [{ weapon: 'cafe', fallback: '🍻' }, 'Café: a cosy pub corner no guest can resist. Distracts one guest at a time.'],
-  [{ enemy: 'wine-snob', fallback: '🍷' }, "Wine Snob: too posh for the Café, it's immune to it. Stop them another way."],
-  [{ weapon: 'pizza-hut', fallback: '🍕' }, 'Pizza Hut Delivery: free pizza lures the whole crowd and stalls them.'],
-  ['🔔', 'Nexios Victory Bell: ring it once per level to clear the room. Pays caps too!'],
-  [{ weapon: 'out-of-office', fallback: '📧' }, 'Out-of-Office, Coffee Machine (slows) and HR Talk (splash) do the rest.'],
-];
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -189,7 +177,7 @@ export class MenuScene extends Phaser.Scene {
       size: 16, color: PALETTE.muted,
     }).setOrigin(0.5).setDepth(OVERLAY_DEPTH));
     const left = cx - pw / 2 + 36;
-    HOW_TO_PLAY.forEach(([spec, text], i) => {
+    howToPlay(this.data_).forEach(([spec, text], i) => {
       const y = cy - ph / 2 + 128 + i * 44;
       objects.push(addCard(this, left + 18, y, 36, 36, 'icon').setDepth(OVERLAY_DEPTH));
       objects.push(this.howToIcon(spec, left + 18, y).setDepth(OVERLAY_DEPTH));

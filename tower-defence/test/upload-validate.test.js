@@ -39,6 +39,7 @@ test('storagePathFromUrl round-trips a getPublicUrl-style URL', () => {
   const path = objectPathFor({ type: 'image/webp' });
   assert.equal(storagePathFromUrl(BASE + path), path);
   assert.equal(storagePathFromUrl(BASE + 'abc.png?t=123'), 'abc.png');
+  assert.equal(storagePathFromUrl(BASE.replace('https', 'HTTPS') + 'abc.png'), 'abc.png');
   assert.equal(storagePathFromUrl(BASE + 'dir/a%20b.png'), 'dir/a b.png');
 });
 

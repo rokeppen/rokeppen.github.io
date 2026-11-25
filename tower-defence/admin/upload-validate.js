@@ -1,5 +1,6 @@
 // Pure checks for sprite image uploads (no DOM, no network). Mirrors the `sprites` Storage
 // bucket limits in supabase/migrations/2026-11-25-beer-party.sql.
+import { isUrl } from '../shared/mapping.js';
 
 export const BUCKET = 'sprites';
 export const MAX_BYTES = 1048576;
@@ -36,7 +37,7 @@ export function objectPathFor(file) {
 // The object path inside the bucket for a public URL from getPublicUrl, or null when the URL
 // is not one of ours (an emoji, another site, another bucket).
 export function storagePathFromUrl(url) {
-  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null;
+  if (!isUrl(url)) return null;
   let parsed;
   try {
     parsed = new URL(url);

@@ -1,7 +1,8 @@
 // Pure helpers for image sprites (no Phaser): URL detection, texture keys, URL collection.
-export function isImageSprite(s) {
-  return typeof s === 'string' && /^https?:\/\//i.test(s);
-}
+import { isUrl } from '../shared/mapping.js';
+
+// Same definition as the admin and the data mapping.
+export const isImageSprite = isUrl;
 
 export function textureKey(url) {
   return `img:${url}`;

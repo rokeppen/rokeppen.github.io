@@ -8,6 +8,7 @@ import {
 } from './catalog-validate.js';
 import { ALLOWED_TYPES, validateImageFile } from './upload-validate.js';
 import { uploadSprite, removeSprite } from './upload.js';
+import { isUrl } from '../shared/mapping.js';
 
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -45,8 +46,6 @@ function field(draft, key, label, kind = 'text', extra = {}) {
   const wrap = h('label', { className: 'field' }, h('span', {}, label), input);
   return { wrap, input };
 }
-
-const isUrl = (s) => typeof s === 'string' && /^https?:\/\//.test(s);
 
 // Legacy items may lack fallbackSprite: an emoji sprite is its own fallback, an image URL
 // gets the default. Called before the form's dirty snapshot, so it doesn't count as a change.

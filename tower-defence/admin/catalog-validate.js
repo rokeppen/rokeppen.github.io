@@ -1,6 +1,7 @@
 // Pure validation for the catalog editors (no DOM). Each function returns a list of
 // human-readable problems; an empty list means the item is valid to save.
 import { validateLevel } from '../shared/model.js';
+import { isUrl } from '../shared/mapping.js';
 
 export const EFFECTS = ['none', 'slow', 'distract', 'lure', 'splash'];
 // Effects that last a while after the hit: they need an effectDuration > 0.
@@ -12,7 +13,6 @@ export const MAX_QUOTES = 10;
 export const MAX_QUOTE_LENGTH = 120;
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-const isUrl = (s) => /^https?:\/\//.test(s);
 
 // An emoji, or an http(s) image URL with a host.
 function checkSprite(errors, v) {

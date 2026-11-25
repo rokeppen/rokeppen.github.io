@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  weaponFromRow, weaponToRow, enemyFromRow, enemyToRow, levelFromRow, levelToRow,
+  weaponFromRow, weaponToRow, enemyFromRow, enemyToRow, levelFromRow, levelToRow, isUrl,
 } from '../shared/mapping.js';
+import { isImageSprite } from '../game/sprites-data.js';
 
 const weapon = {
   id: 'wine-tasting', name: 'Wine Tasting', description: 'Distracts', sprite: 'wine',
@@ -84,4 +85,17 @@ test('ToRow fills defaults for app objects missing the new fields', () => {
   const l = levelToRow({ id: 'l' });
   assert.equal(l.enemy_ids, null);
   assert.equal(l.bar_sprite, '🍻');
+});
+
+test('isUrl: http(s) URLs, case-insensitive; the game uses the same definition', () => {
+  for (const s of ['http://x.test/a.png', 'https://x.test/a.png', 'HTTPS://x.test/a.png', 'Http://x.test/a.png']) {
+    assert.equal(isUrl(s), true, s);
+  }
+  for (const s of ['🍺', '', undefined, null, 'ftp://x.test/a.png', ' https://x.test']) assert.equal(isUrl(s), false, String(s));
+  assert.equal(isImageSprite, isUrl);
+});
+
+test('enemyFromRow: an upper-case image URL sprite gets the default fallback', () => {
+  const r = enemyToRow({ ...enemy, sprite: 'HTTPS://x.test/a.png', fallbackSprite: undefined });
+  assert.equal(r.fallback_sprite, '👤');
 });

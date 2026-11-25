@@ -32,6 +32,7 @@ import {
   addBackground, addBoardBase, addPiece, addCard, bakeBoardTextures, snap, PIECES, TEX, HP_W,
 } from '../ui/textures.js';
 import { recordBest } from '../progress.js';
+import { CAFE_STATUS } from '../how-to.js';
 
 const DEPTH = { board: 0, hover: 0.5, blocks: 1, table: 2, towers: 3, enemies: 4, effects: 6, bubbles: 7, hud: 10 };
 const BLOCKED_SPRITES = ['🪴', '🗄️', '🖨️', '🛋️'];
@@ -564,7 +565,7 @@ export class GameScene extends Phaser.Scene {
         status = '🍕';
       } else if (stalled) {
         rotation = Math.sin(now * 9 + e.id) * 0.2; // happy wobble at the Café
-        status = '🍻';
+        status = CAFE_STATUS;
       } else if (now < e.slowUntil && e.slowFactor < 1) {
         status = '🐌';
       }
