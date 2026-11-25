@@ -130,13 +130,14 @@ export function toast(scene, x, y, text, color = PALETTE.text) {
   return c;
 }
 
-// Friendly text for the `reason` codes GameState returns on failed actions.
+// Friendly text for the `reason` codes GameState returns on failed actions
+// ('guests-moving' is the scene's own: input during the guests' turn playback).
 const REASONS = {
   'no-corks': 'Not enough caps 🧢',
   'not-buildable': "Can't build there",
   'max-tier': 'Fully upgraded',
-  'wave-running': 'Guests are still arriving!',
-  'no-waves': 'That was the last wave',
+  'no-actions': 'No actions left this turn',
+  'guests-moving': 'Guests are moving…',
   'used': 'The bell has already rung 🔔',
   'game-over': "The party's over",
   'not-in-level': 'Not on the menu tonight',

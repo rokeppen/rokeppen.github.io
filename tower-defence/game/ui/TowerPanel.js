@@ -17,25 +17,30 @@ const HELP = [
   'Guests crashed the drinks and',
   'are heading for the beer bar 🍻.',
   '',
-  '1. Pick a weapon above',
-  '2. Click the floor to build',
-  '3. ▶ Start party to send guests',
-  '',
-  'Click a weapon to upgrade or sell.',
-  '🔔 Victory Bell: once per level,',
-  'clears the room and pays caps.',
+  'Each turn: 3 actions (build,',
+  'upgrade, sell), then End turn ▶.',
+  'Unused actions pay 10 🧢 each.',
+  'Guests walk tile by tile; your',
+  'weapons fire as they pass.',
+  '🔔 Bell: free, once per level.',
   '',
   'Keys: 1-9 build · Esc cancel',
-  'Space wave · B bell · F speed',
+  'Space end turn · B bell · F ⏩',
   'U upgrade · S sell · M mute',
 ].join('\n');
 
+// Durations are whole guests' turns (the engine rounds data seconds up).
+export function turnsText(duration) {
+  const n = Math.ceil(duration || 0);
+  return `${n} turn${n === 1 ? '' : 's'}`;
+}
+
 export function effectText(weapon, stats) {
-  const dur = weapon.effectDuration;
+  const dur = turnsText(weapon.effectDuration);
   switch (weapon.effect) {
-    case 'slow': return `Slows guests ${Math.round(stats.effectStrength * 100)}% for ${dur}s`;
-    case 'distract': return `Distracts one guest for ${dur}s`;
-    case 'lure': return `Lures everyone in range for ${dur}s`;
+    case 'slow': return `Slows guests ${Math.round(stats.effectStrength * 100)}% for ${dur}`;
+    case 'distract': return `Distracts one guest for ${dur}`;
+    case 'lure': return `Lures everyone in range for ${dur}`;
     case 'splash': return `Hits everyone within ${stats.effectStrength} tiles`;
     default: return 'Single target';
   }
@@ -76,6 +81,7 @@ export class TowerPanel {
     const tower = this.selectedTower();
     if (!tower) return;
     const { scene } = this;
+    if (scene.refuseAction()) return;
     const result = scene.state.upgradeTower(tower.id);
     if (!result.ok) scene.toastReason(result.reason);
     else scene.onTowerUpgraded(tower);
@@ -85,6 +91,7 @@ export class TowerPanel {
     const tower = this.selectedTower();
     if (!tower) return;
     const { scene } = this;
+    if (scene.refuseAction()) return;
     const result = scene.state.sellTower(tower.id);
     if (!result.ok) scene.toastReason(result.reason);
     else scene.onTowerSold(tower, result.refund);
@@ -96,7 +103,7 @@ export class TowerPanel {
     const weaponId = scene.selectedWeaponId ?? scene.hoverWeaponId ?? null;
     const corks = scene.state.corks;
     const sig = tower
-      ? `t|${tower.id}|${tower.tier}|${corks >= (upgradeCost(scene.weapons.get(tower.weaponId), tower.tier) ?? Infinity)}|${scene.state.over}`
+      ? `t|${tower.id}|${tower.tier}|${corks >= (upgradeCost(scene.weapons.get(tower.weaponId), tower.tier) ?? Infinity)}|${this.canAct()}`
       : weaponId ? `w|${weaponId}|${scene.selectedWeaponId === weaponId}` : 'help';
     if (sig === this.shown) return;
     this.shown = sig;
@@ -111,6 +118,12 @@ export class TowerPanel {
       this.heading.setText('HOW TO PLAY');
       this.add(label(scene, this.x, this.top - 2, HELP, { size: 13, color: PALETTE.muted, lineSpacing: 2 }));
     }
+  }
+
+  // An action could be taken now (the buttons look pressable).
+  canAct() {
+    const { state, busy, ended } = this.scene;
+    return !busy && !ended && !state.over && state.actionsLeft > 0;
   }
 
   clear() {
@@ -159,7 +172,7 @@ export class TowerPanel {
     y = this.rows(y, [
       ['Damage', `${stats.damage}`],
       ['Range', `${stats.range} tiles`],
-      ['Rate', `${stats.fireRate}/s`],
+      ['Rate', `${stats.fireRate}/turn`],
     ]);
     this.add(label(scene, x, y + 2, effectText(weapon, stats), { size: 13, wordWrap: { width: this.width } }));
     if (placing) {
@@ -186,7 +199,7 @@ export class TowerPanel {
     const lines = [
       row('Damage', stats.damage, next?.damage),
       row('Range', stats.range, next?.range),
-      row('Rate', stats.fireRate, next?.fireRate, '/s'),
+      row('Rate', stats.fireRate, next?.fireRate, '/turn'),
     ];
     if (weapon.effect === 'slow') {
       const pct = (s) => Math.round(s.effectStrength * 100);
@@ -207,10 +220,10 @@ export class TowerPanel {
     const upLabel = cost === null ? 'Maxed ★' : `⬆ Upgrade 🧢${cost}`;
     const up = new Button(scene, x + upW / 2, b - 50, upW, 38, upLabel, () => this.upgrade(),
       { size: 14, variant: 'primary' });
-    up.setEnabled(cost !== null && scene.state.corks >= cost && !scene.state.over);
+    up.setEnabled(cost !== null && scene.state.corks >= cost && this.canAct());
     const sell = new Button(scene, x + this.width - sellW / 2, b - 50, sellW, 38, `Sell +${sellRefund(tower)}`,
       () => this.sell(), { size: 14 });
-    sell.setEnabled(!scene.state.over);
+    sell.setEnabled(this.canAct());
     this.buttons.push(up, sell);
     this.add(label(scene, x + this.width / 2, b - 22, '[U] upgrade · [S] sell · Esc close', {
       size: 11, color: PALETTE.muted,
