@@ -9,11 +9,13 @@ const dataSource = createDataSource({
 });
 
 // Shared with the editors (Tasks 9-11). `data` is GameData incl. unpublished levels;
-// `readOnly` is true when data came from the bundled fallback: editors must not save then.
+// `data.levels` are the DB's own rows: unpublished and possibly invalid ones are included so they
+// can be repaired. `readOnly` is true only when the DB was unreachable (bundled fallback shown):
+// editors must not save then.
 export const state = { data: null, dataSource, readOnly: false };
 
 export async function refresh() {
-  state.data = await dataSource.loadGameData({ includeUnpublished: true });
+  state.data = await dataSource.loadGameData({ includeUnpublished: true, includeInvalid: true });
   state.readOnly = state.data.source === 'fallback';
 }
 
@@ -111,13 +113,26 @@ async function showAdmin() {
   buttons[0].click();
 }
 
+function showError(message) {
+  app.replaceChildren(
+    h('h1', {}, 'Something went wrong'),
+    h('p', { className: 'error', role: 'alert' }, message),
+    h('div', { className: 'actions' },
+      h('button', { textContent: 'Retry', onclick: () => render() }), signOutButton()));
+}
+
 async function render() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return showLogin();
-  const { data: row, error } = await supabase.from('admins').select('user_id')
-    .eq('user_id', session.user.id).maybeSingle();
-  if (error || !row) return showNotAdmin();
-  return showAdmin();
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return showLogin();
+    const { data: row, error } = await supabase.from('admins').select('user_id')
+      .eq('user_id', session.user.id).maybeSingle();
+    if (error) return showError(`Couldn't check your access: ${error.message}`);
+    if (!row) return showNotAdmin();
+    return await showAdmin();
+  } catch (e) {
+    showError(e?.message ?? String(e));
+  }
 }
 
 render();

@@ -205,3 +205,31 @@ test('exportJson pretty-prints app-shape data including unpublished levels', asy
   assert.deepEqual(parsed.enemies, [enemy]);
   assert.deepEqual(parsed.levels, [levels[1], levels[0]]);
 });
+
+test('fallbackReason distinguishes unreachable from no-valid-levels', async (t) => {
+  captureWarn(t);
+  const down = fakeClient({ selectImpl: () => Promise.reject(new Error('network down')) });
+  assert.equal((await createDataSource({ client: down, fetchFallback }).loadGameData()).fallbackReason, 'unreachable');
+  const rows = dbRows([makeLevel({ id: 'broken', path: [{ x: 0, y: 0 }] })]);
+  const empty = await createDataSource({ client: fakeClient({ rows }), fetchFallback }).loadGameData();
+  assert.equal(empty.fallbackReason, 'no-valid-levels');
+  const ok = await createDataSource({ client: fakeClient({ rows: dbRows([makeLevel({ id: 'level-1' })]) }), fetchFallback }).loadGameData();
+  assert.equal(ok.fallbackReason, undefined);
+});
+
+test('includeInvalid returns DB rows including invalid levels, no fallback', async (t) => {
+  const warnings = captureWarn(t);
+  const rows = dbRows([makeLevel({ id: 'broken', path: [{ x: 0, y: 0 }] })]);
+  const data = await createDataSource({ client: fakeClient({ rows }), fetchFallback }).loadGameData({ includeUnpublished: true, includeInvalid: true });
+  assert.equal(data.source, 'db');
+  assert.deepEqual(data.levels.map(l => l.id), ['broken']);
+  assert.deepEqual(warnings, []);
+});
+
+test('includeInvalid still falls back when the DB is unreachable', async (t) => {
+  captureWarn(t);
+  const client = fakeClient({ selectImpl: () => Promise.reject(new Error('down')) });
+  const data = await createDataSource({ client, fetchFallback }).loadGameData({ includeInvalid: true });
+  assert.equal(data.source, 'fallback');
+  assert.equal(data.fallbackReason, 'unreachable');
+});
