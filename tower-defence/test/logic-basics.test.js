@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathLength, positionAt } from '../game/logic/path.js';
-import { buildSpawnSchedule } from '../game/logic/waves.js';
+import { buildSpawnSchedule, buildSpawnTurns } from '../game/logic/waves.js';
 import { weaponStats, upgradeCost } from '../game/logic/stats.js';
 
 const path = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
@@ -39,6 +39,22 @@ test('buildSpawnSchedule keeps group order on ties', () => {
     { enemyId: 'b', count: 1, intervalS: 1, delayS: 1 },
   ]);
   assert.deepEqual(s.map((e) => e.enemyId), ['a', 'b']);
+});
+
+test('buildSpawnTurns floors spawn times to turns and keeps group order on ties', () => {
+  assert.deepEqual(buildSpawnTurns([
+    { enemyId: 'a', count: 3, intervalS: 0.5, delayS: 0 },
+    { enemyId: 'b', count: 2, intervalS: 0.1, delayS: 0.9 },
+  ]), [
+    { turn: 0, enemyId: 'a' },
+    { turn: 0, enemyId: 'a' },
+    { turn: 0, enemyId: 'b' },
+    { turn: 1, enemyId: 'a' },
+    { turn: 1, enemyId: 'b' },
+  ]);
+  // 0.1 * 3 is 0.30000000000000004 and 0.7 * 3 is 2.0999999999999996: still turns 0 and 2.
+  assert.deepEqual(buildSpawnTurns([{ enemyId: 'a', count: 4, intervalS: 1 / 3, delayS: 0 }]).map((s) => s.turn), [0, 0, 0, 1]);
+  assert.deepEqual(buildSpawnTurns([]), []);
 });
 
 const weapon = {

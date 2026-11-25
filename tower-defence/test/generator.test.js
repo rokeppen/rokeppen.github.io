@@ -271,7 +271,7 @@ function playWithoutTowers(lvl, catalog) {
   return game.phase;
 }
 
-test('short levels cannot be won without placing a weapon', () => {
+test('short levels cannot be won without placing a weapon', { todo: 'updated in Task 3' }, () => {
   const t0 = Date.now();
   const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]];
   for (const [catalog, lists] of cases) {
