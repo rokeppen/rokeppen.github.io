@@ -1,26 +1,29 @@
-// Side panel, bottom half. Shows the selected tower (stats, Upgrade, Sell), otherwise the
-// weapon being placed or hovered, otherwise a short how-to-play. Keys: U upgrade, S sell.
-// Upgrade/Sell are anchored to the bottom of the side panel, so they always stay on canvas.
+// Side panel, bottom half: a white card showing the selected tower (stats, Upgrade, Sell),
+// otherwise the weapon being placed or hovered, otherwise a short how-to-play.
+// Keys: U upgrade, S sell. Upgrade/Sell are anchored to the bottom of the card, so they
+// always stay on canvas.
 import { PALETTE, SIDE_WIDTH } from '../theme.js';
 import { weaponStats, upgradeCost } from '../logic/stats.js';
 import { sellRefund } from '../logic/state.js';
-import { Button, label } from './widgets.js';
+import { Button, label, icon } from './widgets.js';
+import { addCard } from './textures.js';
 
 const DEPTH = 10;
-// Vertical space the panel needs below the build menu: header, stats, effect line and the
-// bottom-anchored buttons. BuildMenu never grows into it.
+// Vertical space the panel needs below the build menu: header, card with stats, effect line
+// and the bottom-anchored buttons. BuildMenu never grows into it.
 export const TOWER_PANEL_HEIGHT = 350;
-const BUTTONS_HEIGHT = 116; // Upgrade + Sell + key hint, measured up from `bottom`
+const BUTTONS_HEIGHT = 70; // Upgrade + Sell row + key hint, measured up from `bottom`
 const HELP = [
-  'Guests crashed the drinks!',
+  'Guests crashed the drinks and',
+  'are heading for the beer bar 🍻.',
   '',
-  '1. Pick a tower above',
+  '1. Pick a weapon above',
   '2. Click the floor to build',
   '3. ▶ Start party to send guests',
   '',
-  'Click a tower to upgrade or sell.',
+  'Click a weapon to upgrade or sell.',
   '🔔 Victory Bell: once per level,',
-  'clears the room and pays out.',
+  'clears the room and pays caps.',
   '',
   'Keys: 1-9 build · Esc cancel',
   'Space wave · B bell · F speed',
@@ -41,11 +44,17 @@ export function effectText(weapon, stats) {
 export class TowerPanel {
   constructor(scene, top) {
     this.scene = scene;
-    this.x = scene.layout.sideX + 16;
-    this.top = top + 4;
-    this.width = SIDE_WIDTH - 32;
-    this.bottom = scene.layout.height - 12;
-    scene.add.rectangle(this.x - 4, this.top - 8, this.width + 8, 2, PALETTE.panelEdge).setOrigin(0).setDepth(DEPTH);
+    const cardX = scene.layout.sideX + 14;
+    const cardW = SIDE_WIDTH - 28;
+    const cardTop = top + 24;
+    const cardBottom = scene.layout.height - 18;
+    this.heading = label(scene, cardX, top + 2, '', { size: 12, bold: true, color: PALETTE.muted }).setDepth(DEPTH);
+    addCard(scene, cardX + cardW / 2, (cardTop + cardBottom) / 2, cardW, cardBottom - cardTop, 'card')
+      .setDepth(DEPTH - 0.5);
+    this.x = cardX + 12;
+    this.top = cardTop + 12;
+    this.width = cardW - 24;
+    this.bottom = cardBottom - 10;
     this.objects = [];
     this.buttons = [];
     this.shown = null;
@@ -92,9 +101,16 @@ export class TowerPanel {
     if (sig === this.shown) return;
     this.shown = sig;
     this.clear();
-    if (tower) this.showTower(tower);
-    else if (weaponId) this.showWeapon(scene.weapons.get(weaponId), scene.selectedWeaponId === weaponId);
-    else this.add(label(scene, this.x, this.top, HELP, { size: 13, color: PALETTE.hudMuted, lineSpacing: 2 }));
+    if (tower) {
+      this.heading.setText('SELECTED');
+      this.showTower(tower);
+    } else if (weaponId) {
+      this.heading.setText(scene.selectedWeaponId === weaponId ? 'PLACING' : 'WEAPON');
+      this.showWeapon(scene.weapons.get(weaponId), scene.selectedWeaponId === weaponId);
+    } else {
+      this.heading.setText('HOW TO PLAY');
+      this.add(label(scene, this.x, this.top - 2, HELP, { size: 13, color: PALETTE.muted, lineSpacing: 2 }));
+    }
   }
 
   clear() {
@@ -110,33 +126,45 @@ export class TowerPanel {
     return obj;
   }
 
-  header(weapon, subtitle) {
+  header(weapon, subtitle, subColor = PALETTE.muted) {
     const { scene, x, top } = this;
-    this.add(label(scene, x, top, weapon.sprite, { size: 30 }));
-    const name = this.add(label(scene, x + 44, top + 2, weapon.name, { size: 16, bold: true }));
-    if (name.width > this.width - 44) name.setScale((this.width - 44) / name.width);
-    this.add(label(scene, x + 44, top + 22, subtitle, { size: 13, color: PALETTE.accent }));
-    return top + 50;
+    this.add(addCard(scene, x + 20, top + 20, 40, 40, 'icon'));
+    this.add(icon(scene, x + 20, top + 20, weapon.sprite, weapon.fallbackSprite, 24));
+    const name = this.add(label(scene, x + 52, top + 2, weapon.name, { size: 15, bold: true }));
+    if (name.width > this.width - 52) name.setScale((this.width - 52) / name.width);
+    this.add(label(scene, x + 52, top + 22, subtitle, { size: 13, bold: true, color: subColor }));
+    return top + 54;
+  }
+
+  rows(y, rows) {
+    // Two columns: name left (muted), value right (bold), like the mockup's stat rows.
+    const { scene, x } = this;
+    for (const [name, value] of rows) {
+      this.add(label(scene, x, y, name, { size: 13, color: PALETTE.muted }));
+      const v = this.add(label(scene, x + this.width, y, value, { size: 13, bold: true }).setOrigin(1, 0));
+      if (v.width > this.width - 70) v.setScale((this.width - 70) / v.width);
+      y += 21;
+    }
+    return y;
   }
 
   showWeapon(weapon, placing) {
     const { scene, x } = this;
     const stats = weaponStats(weapon, 0);
-    let y = this.header(weapon, `🍾 ${weapon.cost}`);
+    let y = this.header(weapon, `🧢 ${weapon.cost}`, PALETTE.capsText);
     const desc = this.add(label(scene, x, y, weapon.description, {
-      size: 13, color: PALETTE.hudMuted, wordWrap: { width: this.width }, fontStyle: 'italic',
+      size: 12, color: PALETTE.muted, wordWrap: { width: this.width }, fontStyle: 'italic',
     }));
     y += desc.height + 6;
-    const lines = [
-      `Damage   ${stats.damage}`,
-      `Range    ${stats.range} tiles`,
-      `Rate     ${stats.fireRate}/s`,
-      effectText(weapon, stats),
-    ];
-    this.add(label(scene, x, y, lines.join('\n'), { size: 14, lineSpacing: 2 }));
+    y = this.rows(y, [
+      ['Damage', `${stats.damage}`],
+      ['Range', `${stats.range} tiles`],
+      ['Rate', `${stats.fireRate}/s`],
+    ]);
+    this.add(label(scene, x, y + 2, effectText(weapon, stats), { size: 13, wordWrap: { width: this.width } }));
     if (placing) {
-      this.add(label(scene, x, this.bottom - 40, 'Click a free floor tile to build.\nRight-click or Esc to cancel.', {
-        size: 12, color: PALETTE.good,
+      this.add(label(scene, x, this.bottom - 36, 'Click a free floor tile to build.\nRight-click or Esc to cancel.', {
+        size: 12, color: PALETTE.goodText,
       }));
     }
   }
@@ -148,12 +176,12 @@ export class TowerPanel {
     const stats = weaponStats(weapon, tower.tier);
     const cost = upgradeCost(weapon, tower.tier);
     const next = cost === null ? null : weaponStats(weapon, tower.tier + 1);
-    const pips = '★'.repeat(tower.tier) + '☆'.repeat(Math.max(maxTier - tower.tier, 0));
-    let y = this.header(weapon, `Tier ${tower.tier + 1}/${maxTier + 1}  ${pips}`);
+    const pips = '●'.repeat(tower.tier + 1) + '○'.repeat(Math.max(maxTier - tower.tier, 0));
+    let y = this.header(weapon, `Tier ${tower.tier + 1}/${maxTier + 1}  ${pips}`, PALETTE.goodText);
 
     const row = (name, now, then, unit = '') => {
       const changed = then !== undefined && then !== now;
-      return `${name.padEnd(8)} ${now}${unit}${changed ? `  →  ${then}${unit}` : ''}`;
+      return [name, `${now}${unit}${changed ? ` → ${then}${unit}` : ''}`];
     };
     const lines = [
       row('Damage', stats.damage, next?.damage),
@@ -166,24 +194,26 @@ export class TowerPanel {
     } else if (weapon.effect === 'splash') {
       lines.push(row('Splash', stats.effectStrength, next?.effectStrength));
     }
-    const statText = this.add(label(scene, x, y, lines.join('\n'), { size: 14, lineSpacing: 2 }));
-    y += statText.height + 2;
+    y = this.rows(y, lines) + 4;
     const buttonsTop = this.bottom - BUTTONS_HEIGHT;
     const effect = this.add(label(scene, x, y, effectText(weapon, stats), {
-      size: 13, color: PALETTE.hudMuted, wordWrap: { width: this.width },
+      size: 12, color: PALETTE.muted, wordWrap: { width: this.width },
     }));
     if (y + effect.height > buttonsTop - 4) effect.setVisible(false); // never under the buttons
 
-    const bw = this.width;
-    const cx = x + bw / 2;
     const b = this.bottom;
-    const upLabel = cost === null ? 'Fully upgraded ★' : `⬆ Upgrade (${cost} 🍾)`;
-    const up = new Button(scene, cx, b - 96, bw, 40, upLabel, () => this.upgrade(), { size: 16 });
+    const sellW = 76;
+    const upW = this.width - sellW - 8;
+    const upLabel = cost === null ? 'Maxed ★' : `⬆ Upgrade 🧢${cost}`;
+    const up = new Button(scene, x + upW / 2, b - 50, upW, 38, upLabel, () => this.upgrade(),
+      { size: 14, variant: 'primary' });
     up.setEnabled(cost !== null && scene.state.corks >= cost && !scene.state.over);
-    const sell = new Button(scene, cx, b - 48, bw, 40, `Sell (+${sellRefund(tower)} 🍾)`, () => this.sell(), { size: 16 });
+    const sell = new Button(scene, x + this.width - sellW / 2, b - 50, sellW, 38, `Sell +${sellRefund(tower)}`,
+      () => this.sell(), { size: 14 });
     sell.setEnabled(!scene.state.over);
     this.buttons.push(up, sell);
-    this.add(label(scene, cx, b - 22, '[U] upgrade · [S] sell · Esc close', { size: 12, color: PALETTE.hudMuted }))
-      .setOrigin(0.5, 0);
+    this.add(label(scene, x + this.width / 2, b - 22, '[U] upgrade · [S] sell · Esc close', {
+      size: 11, color: PALETTE.muted,
+    })).setOrigin(0.5, 0);
   }
 }

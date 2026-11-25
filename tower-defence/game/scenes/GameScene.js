@@ -4,6 +4,7 @@
 //   scene.state                      the GameState (read corks, wine, phase, towers, ...)
 //   scene.level, scene.weapons       level definition, Map weaponId -> Weapon
 //   scene.enemyDefs                  Map enemyId -> Enemy
+//   scene.hud                        Hud (capsTarget(), bumpCaps() for flying caps)
 //   scene.layout                     { boardX, boardY, boardWidth, boardHeight, sideX, width, height }
 //                                    in canvas pixels (side panel spans sideX..width, HUD_HEIGHT..height)
 //   scene.selectWeapon(id|null)      choose a weapon to place (null cancels)
@@ -19,18 +20,29 @@
 import { GameState } from '../logic/state.js';
 import { positionAt } from '../logic/path.js';
 import { weaponStats } from '../logic/stats.js';
-import { PALETTE, TILE, HUD_HEIGHT, SIDE_WIDTH, MIN_GAME_WIDTH, MIN_GAME_HEIGHT, FONT, EMOJI_FONT, css, rgb } from '../theme.js';
+import {
+  PALETTE, TILE, HUD_HEIGHT, SIDE_WIDTH, MIN_GAME_WIDTH, MIN_GAME_HEIGHT, BOARD_PAD, BOARD_EDGE,
+  FONT, EMOJI_FONT, css, rgb,
+} from '../theme.js';
 import { Hud } from '../ui/Hud.js';
 import { BuildMenu } from '../ui/BuildMenu.js';
 import { TowerPanel } from '../ui/TowerPanel.js';
-import { toast, reasonText } from '../ui/widgets.js';
+import { toast, reasonText, label, icon } from '../ui/widgets.js';
+import {
+  addBackground, addBoardBase, addPiece, addCard, bakeBoardTextures, snap, PIECES, TEX, HP_W,
+} from '../ui/textures.js';
 import { recordBest } from '../progress.js';
 
-const DEPTH = { board: 0, hover: 1, table: 2, towers: 3, enemies: 4, effects: 6, hud: 10 };
+const DEPTH = { board: 0, hover: 0.5, blocks: 1, table: 2, towers: 3, enemies: 4, effects: 6, bubbles: 7, hud: 10 };
 const BLOCKED_SPRITES = ['🪴', '🗄️', '🖨️', '🛋️'];
 const SHOT_TTL = 0.12; // seconds a shot line stays visible
 const RING_TTL = 0.3;  // seconds a splash ring stays visible
 const END_DELAY_MS = 1200; // let the last effects play before the end screen
+const MARGIN = 12;         // space between the board frame and the canvas / side panel
+const BUBBLE_MS = 2500;    // a quote bubble stays this long (or until its guest is gone)
+const MAX_BUBBLES = 3;
+const MAX_FLYING_CAPS = 6;
+const SQUASH_MS = 60;      // half of the 120 ms squash when a tower fires
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -67,8 +79,10 @@ export class GameScene extends Phaser.Scene {
     this.speed = 1;
     this.kills = 0;
     this.ended = false;
-    this.toastText = null;
-    this.towerSprites = new Map(); // tower id -> { container, pips, tier }
+    this.toastObj = null;
+    this.bubbles = new Map();      // enemy instance id -> { container, until }
+    this.flyingCaps = 0;
+    this.towerSprites = new Map(); // tower id -> { container, icon, pips, tier, punching }
     this.enemySprites = new Map(); // enemy instance id -> { container, icon, hpBar, status, ... }
     this.stallSource = new Map();  // enemy instance id -> { effect, x, y } of the last distract/lure
     this.shots = [];
@@ -76,9 +90,17 @@ export class GameScene extends Phaser.Scene {
     this.layout = this.computeLayout(this.level);
     this.scale.setGameSize(this.layout.width, this.layout.height);
 
+    addBackground(this, this.layout.width, this.layout.height);
+    bakeBoardTextures(this);
     this.drawBoard();
     this.drawEndpoints();
     this.hoverGfx = this.add.graphics().setDepth(DEPTH.hover);
+    // Range circles stay on the board: clip them to the board frame.
+    const { boardX, boardY, boardWidth, boardHeight } = this.layout;
+    const clip = this.make.graphics({ x: 0, y: 0, add: false });
+    clip.fillStyle(0xffffff, 1);
+    clip.fillRect(boardX - BOARD_PAD, boardY - BOARD_PAD, boardWidth + 2 * BOARD_PAD, boardHeight + 2 * BOARD_PAD);
+    this.hoverGfx.setMask(clip.createGeometryMask());
     this.effectsGfx = this.add.graphics().setDepth(DEPTH.effects);
     this.installPointer();
 
@@ -94,6 +116,7 @@ export class GameScene extends Phaser.Scene {
     this.consumeEvents();
     this.syncTowers();
     this.syncEnemies();
+    this.updateBubbles();
     this.drawHover();
     this.drawEffects(delta / 1000);
     this.hud.update();
@@ -105,15 +128,17 @@ export class GameScene extends Phaser.Scene {
 
   // The canvas is at least MIN_GAME_WIDTH x MIN_GAME_HEIGHT; a smaller board is centred in
   // the area left of the side panel. Large boards simply grow the canvas (Scale.FIT shrinks it).
+  // The board frame (BOARD_PAD around the tiles, BOARD_EDGE below) plus MARGIN must fit too.
   computeLayout(level) {
     const boardWidth = level.cols * TILE;
     const boardHeight = level.rows * TILE;
-    const width = Math.max(MIN_GAME_WIDTH, boardWidth + SIDE_WIDTH);
-    const height = Math.max(MIN_GAME_HEIGHT, HUD_HEIGHT + boardHeight);
+    const frame = BOARD_PAD + MARGIN;
+    const width = Math.max(MIN_GAME_WIDTH, boardWidth + 2 * frame + SIDE_WIDTH);
+    const height = Math.max(MIN_GAME_HEIGHT, HUD_HEIGHT + boardHeight + 2 * frame + BOARD_EDGE);
     const sideX = width - SIDE_WIDTH;
     return {
       boardX: Math.floor((sideX - boardWidth) / 2),
-      boardY: HUD_HEIGHT + Math.floor((height - HUD_HEIGHT - boardHeight) / 2),
+      boardY: HUD_HEIGHT + Math.floor((height - HUD_HEIGHT - boardHeight - BOARD_EDGE) / 2),
       boardWidth,
       boardHeight,
       sideX,
@@ -175,9 +200,9 @@ export class GameScene extends Phaser.Scene {
     this.bus.emit('tile-click', { x, y, type, towerId: tower ? tower.id : null, result });
   }
 
-  toast(text, color = PALETTE.hudText) {
-    const { boardX, boardWidth } = this.layout;
-    toast(this, boardX + boardWidth / 2, HUD_HEIGHT + 24, text, color);
+  toast(text, color = PALETTE.text) {
+    const { sideX } = this.layout;
+    toast(this, sideX / 2, HUD_HEIGHT + 30, text, color);
   }
 
   toastReason(reason) {
@@ -186,21 +211,29 @@ export class GameScene extends Phaser.Scene {
 
   onTowerPlaced(x, y, weaponId) {
     const c = this.tileCentre(x, y);
-    this.floatText(c.x, c.y - 30, `-${this.weapons.get(weaponId).cost} 🍾`, PALETTE.hudMuted);
+    this.floatText(c.x, c.y - 30, `-${this.weapons.get(weaponId).cost} 🧢`, PALETTE.muted);
     this.play('cork');
   }
 
   onTowerUpgraded(tower) {
     const c = this.tileCentre(tower.x, tower.y);
-    this.floatText(c.x, c.y - 30, '⬆ Upgraded!', PALETTE.accent);
+    this.floatText(c.x, c.y - 30, '⬆ Upgraded!', PALETTE.goodText);
     const s = this.towerSprites.get(tower.id);
-    if (s) this.tweens.add({ targets: s.container, scale: 1.25, duration: 110, yoyo: true });
+    if (s) {
+      this.tweens.killTweensOf(s.container);
+      s.container.setScale(1);
+      s.punching = true;
+      this.tweens.add({
+        targets: s.container, scale: 1.2, duration: 110, yoyo: true,
+        onComplete: () => { s.punching = false; },
+      });
+    }
     this.play('cork');
   }
 
   onTowerSold(tower, refund) {
     const c = this.tileCentre(tower.x, tower.y);
-    this.floatText(c.x, c.y - 20, `+${refund} 🍾`, PALETTE.accent);
+    this.floatText(c.x, c.y - 20, `+${refund} 🧢`, PALETTE.capsText);
     this.play('cork');
   }
 
@@ -248,14 +281,15 @@ export class GameScene extends Phaser.Scene {
         this.kills += 1;
         const at = this.toPixels(ev.x, ev.y);
         this.removeEnemySprite(ev.id, true);
-        this.floatText(at.x, at.y - 20, `+${ev.reward} 🍾`, PALETTE.accent);
+        this.floatText(at.x, at.y - 24, `+${ev.reward} 🧢`, PALETTE.capsText);
+        this.flyCap(at.x, at.y);
         this.play('cork');
         break;
       }
       case 'leak': {
         this.removeEnemySprite(ev.id, false);
         const at = this.tileCentre(this.level.end.x, this.level.end.y);
-        this.floatText(at.x, at.y - 24, `-${ev.wineDamage} 🍷`, PALETTE.danger);
+        this.floatText(at.x, at.y - 30, `-${ev.wineDamage} 🍺`, PALETTE.danger);
         this.cameras.main.shake(150, 0.004);
         this.play('leak');
         break;
@@ -264,7 +298,10 @@ export class GameScene extends Phaser.Scene {
         this.renderBell(ev);
         break;
       case 'wave-cleared':
-        this.toast(`Wave ${this.state.waveIndex} cleared! 🥂`, PALETTE.good);
+        this.toast(`Wave ${this.state.waveIndex} cleared! 🍻`, PALETTE.goodText);
+        break;
+      case 'quote':
+        this.showQuote(ev);
         break;
       case 'won':
       case 'lost':
@@ -280,6 +317,7 @@ export class GameScene extends Phaser.Scene {
     if (!tower) return;
     const weapon = this.weapons.get(tower.weaponId);
     const from = this.tileCentre(tower.x, tower.y);
+    from.y -= PIECES.tower.lift;
     const to = this.toPixels(ev.x, ev.y);
     const effect = weapon ? weapon.effect : 'none';
 
@@ -305,12 +343,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Squash: wider and flatter for 120 ms, anchored at the tower's foot.
     const s = this.towerSprites.get(tower.id);
     if (s && !s.punching) {
       s.punching = true;
       this.tweens.add({
-        targets: s.icon, scale: 1.2, duration: 60, yoyo: true,
-        onComplete: () => { s.punching = false; },
+        targets: s.container, scaleX: 1.12, scaleY: 0.86, duration: SQUASH_MS, yoyo: true,
+        onComplete: () => { s.punching = false; s.container.setScale(1); },
       });
     }
     this.play('shot');
@@ -320,7 +359,7 @@ export class GameScene extends Phaser.Scene {
   renderBell(ev) {
     const cam = this.cameras.main;
     cam.shake(450, 0.012);
-    cam.flash(500, ...rgb(PALETTE.accent));
+    cam.flash(500, ...rgb(PALETTE.gold));
     this.play('bell');
     this.kills += ev.count;
 
@@ -329,7 +368,10 @@ export class GameScene extends Phaser.Scene {
       const { x, y } = s.container;
       const delay = Math.min(i, 20) * 25;
       if (i < 12) {
-        this.time.delayedCall(delay, () => this.floatText(x, y - 20, `+${s.reward} 🍾`, PALETTE.accent));
+        this.time.delayedCall(delay, () => {
+          this.floatText(x, y - 24, `+${s.reward} 🧢`, PALETTE.capsText);
+          this.flyCap(x, y);
+        });
       }
       this.enemySprites.delete(id);
       this.stallSource.delete(id);
@@ -343,22 +385,22 @@ export class GameScene extends Phaser.Scene {
     const { boardX, boardY, boardWidth, boardHeight } = this.layout;
     const cx = boardX + boardWidth / 2;
     const cy = boardY + boardHeight / 2;
-    this.shots.push({ kind: 'ring', x: cx, y: cy, r: Math.max(boardWidth, boardHeight), ttl: 0.6, max: 0.6, color: PALETTE.accent, grow: true });
+    this.shots.push({ kind: 'ring', x: cx, y: cy, r: Math.max(boardWidth, boardHeight), ttl: 0.6, max: 0.6, color: PALETTE.goldEdge, grow: true });
     const bell = this.add.text(cx, cy - 30, '🔔', { fontFamily: EMOJI_FONT, fontSize: '96px', padding: { x: 4, y: 12 } })
       .setOrigin(0.5, 0.2).setDepth(DEPTH.effects + 1).setScale(0.2);
     this.tweens.add({ targets: bell, scale: 1, duration: 250, ease: 'Back.easeOut' });
     this.tweens.add({ targets: bell, angle: { from: -22, to: 22 }, duration: 120, yoyo: true, repeat: 4 });
     this.tweens.add({ targets: bell, alpha: 0, delay: 1100, duration: 400, onComplete: () => bell.destroy() });
 
-    const text = ev.count > 0 ? `DING DING! +${ev.reward} 🍾` : 'DING DING!';
+    const text = ev.count > 0 ? `DING DING! +${ev.reward} 🧢` : 'DING DING!';
     const t = this.add.text(cx, cy + 60, text, {
       fontFamily: `${FONT}, ${EMOJI_FONT}`, fontSize: '40px', fontStyle: 'bold',
-      color: css(PALETTE.accent), stroke: css(PALETTE.hpBack), strokeThickness: 7, padding: { x: 4, y: 8 },
+      color: css(PALETTE.goldText), stroke: css(PALETTE.gold), strokeThickness: 8, padding: { x: 4, y: 8 },
     }).setOrigin(0.5).setDepth(DEPTH.effects + 1).setScale(0.3);
     this.tweens.add({ targets: t, scale: 1, duration: 320, ease: 'Back.easeOut' });
     this.tweens.add({ targets: t, alpha: 0, y: cy + 30, delay: 1300, duration: 500, onComplete: () => t.destroy() });
     if (ev.count > 0) {
-      this.time.delayedCall(350, () => this.toast(`${ev.count} guest${ev.count === 1 ? '' : 's'} rung out of the office`, PALETTE.accent));
+      this.time.delayedCall(350, () => this.toast(`${ev.count} guest${ev.count === 1 ? '' : 's'} rung out of the office`, PALETTE.goldText));
     }
   }
 
@@ -382,75 +424,37 @@ export class GameScene extends Phaser.Scene {
 
   // --- static board ---
 
+  // Baked images only: frame, one image per tile, raised furniture blocks with their emoji.
   drawBoard() {
     const { cols, rows } = this.level;
-    const g = this.add.graphics().setDepth(DEPTH.board);
+    const { boardX, boardY, boardWidth, boardHeight } = this.layout;
+    addBoardBase(this, boardX, boardY, boardWidth, boardHeight, BOARD_PAD, BOARD_EDGE).setDepth(DEPTH.board - 1);
     const pathSet = new Set(this.level.path.map((p) => `${p.x},${p.y}`));
-    const isPath = (x, y) => pathSet.has(`${x},${y}`);
-
-    // Oak floor
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const { x: px, y: py } = this.toPixels(x, y);
-        g.fillStyle((x + y) % 2 === 0 ? PALETTE.floor : PALETTE.floorAlt, 1);
-        g.fillRect(px, py, TILE, TILE);
+        this.add.image(px, py, pathSet.has(`${x},${y}`) ? TEX.path : TEX.floor).setOrigin(0).setDepth(DEPTH.board);
       }
     }
-    g.lineStyle(1, PALETTE.gridLine, 0.6);
-    for (let x = 0; x <= cols; x++) {
-      const a = this.toPixels(x, 0);
-      g.lineBetween(a.x, a.y, a.x, a.y + rows * TILE);
-    }
-    for (let y = 0; y <= rows; y++) {
-      const a = this.toPixels(0, y);
-      g.lineBetween(a.x, a.y, a.x + cols * TILE, a.y);
-    }
-
-    // Carpet runner along the path: dark edge, lighter inner strip joined to neighbours
-    const inset = 6;
-    for (const p of this.level.path) {
-      const { x: px, y: py } = this.toPixels(p.x, p.y);
-      g.fillStyle(PALETTE.pathEdge, 1);
-      g.fillRect(px, py, TILE, TILE);
-      g.fillStyle(PALETTE.path, 1);
-      g.fillRect(px + inset, py + inset, TILE - 2 * inset, TILE - 2 * inset);
-      if (isPath(p.x - 1, p.y)) g.fillRect(px, py + inset, inset, TILE - 2 * inset);
-      if (isPath(p.x + 1, p.y)) g.fillRect(px + TILE - inset, py + inset, inset, TILE - 2 * inset);
-      if (isPath(p.x, p.y - 1)) g.fillRect(px + inset, py, TILE - 2 * inset, inset);
-      if (isPath(p.x, p.y + 1)) g.fillRect(px + inset, py + TILE - inset, TILE - 2 * inset, inset);
-    }
-
-    // Blocked tiles: office furniture
     for (const b of this.level.blocked || []) {
-      const { x: px, y: py } = this.toPixels(b.x, b.y);
-      g.fillStyle(PALETTE.blockedEdge, 1);
-      g.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
-      g.fillStyle(PALETTE.blocked, 1);
-      g.fillRect(px + 5, py + 5, TILE - 10, TILE - 10);
       const c = this.tileCentre(b.x, b.y);
-      this.emoji(c.x, c.y, BLOCKED_SPRITES[(b.x * 7 + b.y * 3) % BLOCKED_SPRITES.length], 36)
-        .setDepth(DEPTH.board);
+      const depth = DEPTH.blocks + c.y / 100000;
+      addPiece(this, 'block', c.x, c.y).setDepth(depth);
+      this.emoji(c.x, c.y - PIECES.block.lift, BLOCKED_SPRITES[(b.x * 7 + b.y * 3) % BLOCKED_SPRITES.length], 28)
+        .setDepth(depth);
     }
   }
 
   drawEndpoints() {
     const { start, end } = this.level;
     const s = this.tileCentre(start.x, start.y);
-    const door = this.add.graphics().setDepth(DEPTH.table);
-    door.fillStyle(PALETTE.door, 0.9);
-    door.fillRoundedRect(s.x - 24, s.y - 28, 48, 56, 6);
-    this.emoji(s.x, s.y, '🚪', 34).setDepth(DEPTH.table);
+    addPiece(this, 'door', s.x, s.y).setDepth(DEPTH.table);
+    this.emoji(s.x, s.y - PIECES.door.lift, '🚪', 28).setDepth(DEPTH.table);
 
+    // The beer bar: a gold block with the level's bar sprite (image or emoji, 🍻 by default).
     const e = this.tileCentre(end.x, end.y);
-    const g = this.add.graphics().setDepth(DEPTH.table);
-    g.fillStyle(PALETTE.table, 1);
-    g.fillRoundedRect(e.x - 28, e.y - 24, 56, 50, 8);
-    g.fillStyle(PALETTE.tablecloth, 1);
-    g.fillRoundedRect(e.x - 25, e.y - 21, 50, 40, 6);
-    g.fillStyle(PALETTE.tableTop, 1);
-    g.fillRect(e.x - 25, e.y + 12, 50, 7);
-    this.emoji(e.x - 9, e.y - 2, '🍷', 26).setDepth(DEPTH.table);
-    this.emoji(e.x + 11, e.y - 4, '🍾', 26).setDepth(DEPTH.table);
+    addPiece(this, 'bar', e.x, e.y).setDepth(DEPTH.table);
+    icon(this, e.x, e.y - PIECES.bar.lift, this.level.barSprite, '🍻', 32).setDepth(DEPTH.table);
   }
 
   // --- dynamic sprites ---
@@ -461,33 +465,34 @@ export class GameScene extends Phaser.Scene {
       alive.add(t.id);
       let s = this.towerSprites.get(t.id);
       if (!s) {
+        // The container sits at the tower's foot so scaling (pop-in, squash) keeps it grounded.
         const c = this.tileCentre(t.x, t.y);
-        const base = this.add.graphics();
-        base.fillStyle(PALETTE.towerBase, 1);
-        base.fillCircle(0, 0, 26);
-        base.lineStyle(3, PALETTE.towerRing, 1);
-        base.strokeCircle(0, 0, 26);
-        // Dark outer edge: the cream disc alone is too close to the oak floor to read at a glance.
-        base.lineStyle(2, PALETTE.towerEdge, 1);
-        base.strokeCircle(0, 0, 28.5);
+        const foot = PIECES.tower.h / 2;
+        const base = addPiece(this, 'tower', 0, -foot);
+        const faceY = -foot - PIECES.tower.lift;
         const weapon = this.weapons.get(t.weaponId);
-        const icon = this.emoji(0, -1, weapon ? weapon.sprite : '❔', 32);
-        const pips = this.add.graphics();
-        const container = this.add.container(c.x, c.y, [base, icon, pips]).setDepth(DEPTH.towers);
+        const ic = icon(this, 0, faceY - 3, weapon?.sprite, weapon?.fallbackSprite || '❔', 28);
+        const container = this.add.container(c.x, c.y + foot, [base, ic])
+          .setDepth(DEPTH.towers + c.y / 100000);
         container.setScale(0.3);
-        this.tweens.add({ targets: container, scale: 1, duration: 260, ease: 'Back.easeOut' });
-        s = { container, icon, pips, tier: -1, punching: false };
+        s = { container, icon: ic, pips: [], faceY, tier: -1, punching: true };
+        const sprite = s;
+        this.tweens.add({
+          targets: container, scale: 1, duration: 260, ease: 'Back.easeOut',
+          onComplete: () => { sprite.punching = false; },
+        });
         this.towerSprites.set(t.id, s);
       }
       if (s.tier !== t.tier) {
+        // Green tier dots along the bottom of the face: one per tier above the first.
         s.tier = t.tier;
-        s.pips.clear();
+        for (const p of s.pips) p.destroy();
+        s.pips = [];
         for (let i = 0; i < t.tier; i++) {
           const px = (i - (t.tier - 1) / 2) * 10;
-          s.pips.fillStyle(PALETTE.tierPipEdge, 1);
-          s.pips.fillCircle(px, 24, 5);
-          s.pips.fillStyle(PALETTE.tierPip, 1);
-          s.pips.fillCircle(px, 24, 3.5);
+          const pip = this.add.image(px, s.faceY + 18, TEX.pip);
+          s.container.add(pip);
+          s.pips.push(pip);
         }
       }
     }
@@ -509,18 +514,25 @@ export class GameScene extends Phaser.Scene {
       let s = this.enemySprites.get(e.id);
       if (!s) {
         const def = this.enemyDefs.get(e.enemyId);
-        const shadow = this.add.ellipse(0, 18, 34, 10, PALETTE.enemyShadow, 0.25);
-        const icon = this.emoji(0, 0, def ? def.sprite : '👤', 40);
-        const hpBar = this.add.graphics();
-        const status = this.emoji(18, -18, '', 18);
-        const container = this.add.container(0, 0, [shadow, icon, hpBar, status]);
-        s = { container, icon, hpBar, status, reward: def ? def.reward : 0,
-          lastHp: null, lastStatus: null, depth: null };
+        const faceY = -PIECES.guest.lift;
+        const base = addPiece(this, 'guest', 0, 0);
+        const ic = icon(this, 0, faceY, def?.sprite, def?.fallbackSprite || '👤', 24);
+        const hpY = faceY - PIECES.guest.h / 2 - 8;
+        const hpBack = this.add.image(0, hpY, TEX.hpBack);
+        const hpFill = this.add.image(-(HP_W + 2) / 2, hpY, TEX.hpHigh).setOrigin(0, 0.5);
+        const status = this.emoji(17, faceY - 15, '', 16);
+        const container = this.add.container(0, 0, [base, ic, hpBack, hpFill, status]);
+        s = { container, icon: ic, hpFill, hpTex: TEX.hpHigh, status, faceY, reward: def ? def.reward : 0,
+          lastHp: null, lastStatus: null, depth: null, phase: (e.id * 1.7) % (Math.PI * 2) };
         this.enemySprites.set(e.id, s);
       }
       const pos = positionAt(this.level.path, e.distance);
       const px = this.toPixels(pos.x, pos.y);
-      s.container.setPosition(px.x, px.y);
+
+      const stalled = now < e.stallUntil;
+      // Bob while walking (a little hop every step); stand still while stalled.
+      const bob = stalled ? 0 : -Math.abs(Math.sin(now * 9 + s.phase)) * 3;
+      s.container.setPosition(px.x, px.y + bob);
       // Lower on screen draws in front; only touch depth when it changes.
       const depth = DEPTH.enemies + Math.round(px.y) / 10000;
       if (s.depth !== depth) {
@@ -529,10 +541,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (s.lastHp !== e.hp) {
         s.lastHp = e.hp;
-        this.drawHpBar(s.hpBar, e.hp / e.maxHp);
+        this.drawHpBar(s, e.hp / e.maxHp);
       }
 
-      const stalled = now < e.stallUntil;
       const source = stalled ? this.stallSource.get(e.id) : null;
       let status = '';
       let rotation = 0;
@@ -541,17 +552,17 @@ export class GameScene extends Phaser.Scene {
       if (source && source.effect === 'lure') {
         // Leaning hungrily toward the pizza, without leaving the path.
         const angle = Math.atan2(source.y - pos.y, source.x - pos.x);
-        ox = Math.cos(angle) * 7;
-        oy = Math.sin(angle) * 5;
+        ox = Math.cos(angle) * 6;
+        oy = Math.sin(angle) * 4;
         rotation = Math.cos(angle) * 0.35 + Math.sin(now * 14) * 0.05;
         status = '🍕';
       } else if (stalled) {
-        rotation = Math.sin(now * 9 + e.id) * 0.2; // tipsy wobble at the wine tasting
-        status = '💬';
+        rotation = Math.sin(now * 9 + e.id) * 0.2; // happy wobble at the Café
+        status = '🍻';
       } else if (now < e.slowUntil && e.slowFactor < 1) {
         status = '🐌';
       }
-      s.icon.setRotation(rotation).setPosition(ox, oy);
+      s.icon.setRotation(rotation).setPosition(ox, s.faceY + oy);
       if (s.lastStatus !== status) {
         s.lastStatus = status;
         s.status.setText(status);
@@ -562,15 +573,63 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  drawHpBar(g, ratio) {
+  // Slim bar: scale the fill and swap its colour texture only when the band changes.
+  drawHpBar(s, ratio) {
     const r = Math.max(0, Math.min(1, ratio));
-    const w = 40;
-    const h = 6;
-    g.clear();
-    g.fillStyle(PALETTE.hpBack, 0.85);
-    g.fillRect(-w / 2 - 1, -32, w + 2, h + 2);
-    g.fillStyle(r > 0.6 ? PALETTE.hpHigh : r > 0.3 ? PALETTE.hpMid : PALETTE.hpLow, 1);
-    g.fillRect(-w / 2, -31, w * r, h);
+    const tex = r > 0.6 ? TEX.hpHigh : r > 0.3 ? TEX.hpMid : TEX.hpLow;
+    if (s.hpTex !== tex) {
+      s.hpTex = tex;
+      s.hpFill.setTexture(tex);
+    }
+    s.hpFill.setScale(r, 1);
+  }
+
+  // --- quote bubbles ---
+
+  // A white rounded bubble with a tail above the guest. One per guest (a new line replaces
+  // the old), at most MAX_BUBBLES on screen (extra quotes are skipped), BUBBLE_MS each.
+  showQuote(ev) {
+    if (!ev.text || !this.state.enemies.some((e) => e.id === ev.id)) return;
+    const existing = this.bubbles.get(ev.id);
+    if (existing) {
+      this.tweens.killTweensOf(existing.container);
+      existing.container.destroy();
+      this.bubbles.delete(ev.id);
+    } else if (this.bubbles.size >= MAX_BUBBLES) {
+      return;
+    }
+    const text = label(this, 0, 0, ev.text, {
+      size: 13, wordWrap: { width: 170, useAdvancedWrap: true }, align: 'center',
+    }).setOrigin(0.5);
+    const w = snap(text.width + 20);
+    const h = snap(text.height + 6, 4);
+    const bg = addCard(this, 0, -h / 2, w, h, 'bubble');
+    text.setY(-h / 2);
+    const container = this.add.container(0, 0, [bg, text]).setDepth(DEPTH.bubbles).setAlpha(0);
+    this.tweens.add({ targets: container, alpha: 1, duration: 150 });
+    this.bubbles.set(ev.id, { container, width: w, until: this.time.now + BUBBLE_MS });
+    this.updateBubbles();
+  }
+
+  updateBubbles() {
+    if (this.bubbles.size === 0) return;
+    const now = this.time.now;
+    const { boardX, boardWidth } = this.layout;
+    for (const [id, b] of this.bubbles) {
+      const s = this.enemySprites.get(id);
+      const guestAlive = s || this.state.enemies.some((e) => e.id === id);
+      if (!guestAlive || now >= b.until) {
+        this.tweens.killTweensOf(b.container);
+        b.container.destroy();
+        this.bubbles.delete(id);
+        continue;
+      }
+      if (!s) continue; // spawned this frame; its sprite appears on the next sync
+      // Tail tip just above the HP bar; keep the bubble over the board horizontally.
+      const half = b.width / 2;
+      const x = Math.min(Math.max(s.container.x, boardX + half - 6), boardX + boardWidth - half + 6);
+      b.container.setPosition(x, s.container.y + s.faceY - PIECES.guest.h / 2 - 22);
+    }
   }
 
   removeEnemySprite(id, pop) {
@@ -597,8 +656,10 @@ export class GameScene extends Phaser.Scene {
       const { x, y } = this.hoverTile;
       const ok = this.state.tileType(x, y) === 'buildable';
       const p = this.toPixels(x, y);
-      g.fillStyle(ok ? PALETTE.buildableHover : PALETTE.invalidHover, 0.45);
-      g.fillRect(p.x, p.y, TILE, TILE);
+      g.fillStyle(ok ? PALETTE.buildableHover : PALETTE.invalidHover, 1);
+      g.fillRoundedRect(p.x + 2, p.y + 2, TILE - 4, TILE - 4, 7);
+      g.lineStyle(2, ok ? PALETTE.good : PALETTE.invalidRange, 1);
+      g.strokeRoundedRect(p.x + 3, p.y + 3, TILE - 6, TILE - 6, 6);
       this.drawRange(g, x, y, weaponStats(this.weapons.get(this.selectedWeaponId), 0).range, ok);
       return;
     }
@@ -609,12 +670,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Pastel green range circle (red-ish when the tile can't take a tower).
   drawRange(g, x, y, rangeTiles, ok) {
     const c = this.tileCentre(x, y);
-    const color = ok ? PALETTE.range : PALETTE.invalidHover;
-    g.fillStyle(color, ok ? 0.18 : 0.1);
+    const color = ok ? PALETTE.range : PALETTE.invalidRange;
+    g.fillStyle(color, ok ? 0.12 : 0.08);
     g.fillCircle(c.x, c.y, rangeTiles * TILE);
-    g.lineStyle(2, color, 0.8);
+    g.lineStyle(2, color, 0.6);
     g.strokeCircle(c.x, c.y, rangeTiles * TILE);
   }
 
@@ -635,15 +697,31 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  floatText(x, y, text, color) {
+  floatText(x, y, text, color = PALETTE.capsText) {
     const t = this.add.text(x, y, text, {
-      fontFamily: `${FONT}, ${EMOJI_FONT}`, fontSize: '20px', fontStyle: 'bold',
-      color: css(color), stroke: css(PALETTE.hpBack), strokeThickness: 4,
+      fontFamily: `${FONT}, ${EMOJI_FONT}`, fontSize: '18px', fontStyle: 'bold',
+      color: css(color), stroke: css(PALETTE.white), strokeThickness: 4,
       padding: { x: 2, y: 4 },
     }).setOrigin(0.5).setDepth(DEPTH.effects);
     this.tweens.add({
       targets: t, y: y - 36, alpha: 0, duration: 900, ease: 'Cubic.easeOut',
       onComplete: () => t.destroy(),
+    });
+  }
+
+  // A bottle cap flies from (x, y) to the HUD caps counter (at most MAX_FLYING_CAPS at once).
+  flyCap(x, y) {
+    if (this.flyingCaps >= MAX_FLYING_CAPS || !this.hud) return;
+    this.flyingCaps += 1;
+    const target = this.hud.capsTarget();
+    const cap = this.emoji(x, y, '🧢', 20).setDepth(DEPTH.hud + 2);
+    this.tweens.add({
+      targets: cap, x: target.x, y: target.y, scale: 0.8, duration: 600, ease: 'Cubic.easeIn',
+      onComplete: () => {
+        cap.destroy();
+        this.flyingCaps -= 1;
+        if (this.hud) this.hud.bumpCaps();
+      },
     });
   }
 

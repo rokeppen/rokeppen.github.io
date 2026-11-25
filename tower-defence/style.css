@@ -1,14 +1,15 @@
-/* Welcome page. Colours mirror game/theme.js PALETTE. */
+/* Welcome page. Colours mirror game/theme.js PALETTE (pastel "style C" look). */
 :root {
-    --background: #2b1d16;  /* walnut */
-    --panel: #33241b;
-    --path: #8e2b3a;        /* burgundy carpet */
-    --path-edge: #5e1724;
-    --ring: #c9932e;
-    --accent: #f2c14e;      /* champagne gold */
-    --accent-hover: #f7d77f;
-    --text: #fdf6e3;
-    --muted: #cbb89d;
+    --sky-top: #e6f3ff;
+    --sky-bottom: #cfe6f7;
+    --card: #ffffff;
+    --text: #23384d;
+    --muted: #6b8299;
+    --navy: #23384d;
+    --navy-edge: #0f1e2c;
+    --navy-hover: #2f4a66;
+    --gold: #ffd66b;
+    --shadow: rgba(40, 70, 110, 0.18);
 }
 
 * {
@@ -17,7 +18,7 @@
 }
 
 html {
-    background: var(--background);
+    background: var(--sky-bottom);
 }
 
 body {
@@ -26,30 +27,37 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    background: radial-gradient(circle at top, #4a2a2a, var(--background) 70%);
+    background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
     color: var(--text);
     overflow-x: hidden;
 }
 
 .welcome {
     width: 100%;
-    max-width: 560px;
+    max-width: 580px;
     margin: 0 16px;
-    padding: 32px 16px;
+    padding: 32px 0;
     text-align: center;
 }
 
+.card {
+    background: var(--card);
+    border-radius: 22px;
+    padding: 32px 24px 36px;
+    box-shadow: 0 10px 0 #c9d6e3, 0 22px 36px var(--shadow);
+}
+
 .glass {
-    font-size: 88px;
+    font-size: 84px;
     line-height: 1;
-    filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5));
+    filter: drop-shadow(0 6px 8px var(--shadow));
 }
 
 h1 {
-    font-size: clamp(1.9rem, 7vw, 2.8rem);
+    font-size: clamp(1.9rem, 7vw, 2.7rem);
     line-height: 1.15;
     margin: 16px 0 12px;
-    color: var(--accent);
+    color: var(--text);
     overflow-wrap: break-word;
 }
 
@@ -62,32 +70,31 @@ h1 {
 
 .start {
     display: inline-block;
-    margin-top: 28px;
+    margin-top: 24px;
     text-decoration: none;
-    font-size: 1.35rem;
-    font-weight: bold;
-    padding: 16px 56px;
-    border: 2px solid var(--ring);
+    font-size: 1.3rem;
+    font-weight: 800;
+    padding: 15px 54px;
     border-radius: 14px;
-    background: var(--accent);
-    color: var(--background);
-    box-shadow: 0 6px 0 var(--path-edge);
+    background: var(--navy);
+    color: #ffffff;
+    box-shadow: 0 6px 0 var(--navy-edge), 0 12px 18px var(--shadow);
     transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
 }
 
 .start:hover,
 .start:focus-visible {
-    background: var(--accent-hover);
+    background: var(--navy-hover);
 }
 
 .start:focus-visible {
-    outline: 3px solid var(--text);
+    outline: 3px solid var(--gold);
     outline-offset: 4px;
 }
 
 .start:active {
     transform: translateY(4px);
-    box-shadow: 0 2px 0 var(--path-edge);
+    box-shadow: 0 2px 0 var(--navy-edge), 0 6px 10px var(--shadow);
 }
 
 .admin,
@@ -96,16 +103,17 @@ h1 {
     width: fit-content;
     margin: 0 auto;
     color: var(--muted);
+    font-weight: 600;
     text-decoration: none;
 }
 
 .admin {
-    margin-top: 24px;
+    margin-top: 28px;
     font-size: 0.9rem;
 }
 
 .back {
-    margin-top: 32px;
+    margin-top: 20px;
 }
 
 .admin:hover,

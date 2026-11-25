@@ -1,7 +1,7 @@
 // Best result per level, remembered in localStorage (wrapped: storage may be blocked).
 const STORAGE_KEY = 'friday-drinks:stars';
 
-// 3 stars: barely touched the wine; 1 star: survived.
+// 3 stars: barely touched the kegs (internal name: wine); 1 star: survived.
 export function starsFor(wine, startingWine) {
   const ratio = startingWine > 0 ? wine / startingWine : 0;
   return ratio >= 0.8 ? 3 : ratio >= 0.4 ? 2 : 1;
