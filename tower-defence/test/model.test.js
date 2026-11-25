@@ -204,3 +204,17 @@ test('validateLevel derives enemyIds for legacy levels', () => {
   assert.deepEqual(errors, []);
   assert.deepEqual(validateLevel(makeLevel({ enemyIds: null }), catalog).level.enemyIds, ['e']);
 });
+
+test('validateLevel drops guest-list ids missing from the catalog, one error each', () => {
+  const { level: out, errors } = validateLevel(makeLevel({ enemyIds: ['e', 'ghost', 'ghost2'] }), catalog);
+  assert.deepEqual(out.enemyIds, ['e']);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /unknown guest "ghost" dropped/);
+  assert.match(errors[1], /unknown guest "ghost2" dropped/);
+});
+
+test('validateLevel is fatal when every guest-list id is unknown', () => {
+  const { level: out, errors } = validateLevel(makeLevel({ enemyIds: ['ghost'] }), catalog);
+  assert.equal(out, null);
+  assert.ok(errors.some(e => /no guests/.test(e)), errors.join('; '));
+});
