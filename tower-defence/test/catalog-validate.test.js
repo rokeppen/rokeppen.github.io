@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete } from '../admin/catalog-validate.js';
+import { validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, IMMUNITY_EFFECTS } from '../admin/catalog-validate.js';
 
 const weapon = (o = {}) => ({
   id: 'w1', name: 'Cannon', description: '', sprite: 'x', cost: 50, range: 2.5, damage: 8, fireRate: 1.5,
-  effect: 'none', effectStrength: 0, effectDuration: 0, upgrades: [], ...o,
+  effect: 'none', effectStrength: 0, effectDuration: 0, upgrades: [], fallbackSprite: '❔', ...o,
 });
-const enemy = (o = {}) => ({ id: 'e1', name: 'Guest', description: '', sprite: 'x', hp: 10, speed: 1, reward: 5, wineDamage: 1, ...o });
+const enemy = (o = {}) => ({ id: 'e1', name: 'Guest', description: '', sprite: 'x', hp: 10, speed: 1, reward: 5, wineDamage: 1,
+  quotes: ['Cheers!'], immuneTo: ['distract'], fallbackSprite: '👤', ...o });
 
 test('valid weapon and enemy pass', () => {
   assert.deepEqual(validateWeapon(weapon()), []);
@@ -97,4 +98,35 @@ test('levelsHiddenByDelete lists levels left with no weapons or no waves', () =>
   // 'both' keeps wave 2 (e2); 'W1 + ghost' keeps e2 in its only wave.
   assert.deepEqual(levelsHiddenByDelete(levels, catalog, { enemyId: 'e1' }), ['Only W1']);
   assert.deepEqual(levelsHiddenByDelete(undefined, catalog, { enemyId: 'e1' }), []);
+});
+
+test('IMMUNITY_EFFECTS lists the effects a guest can ignore', () => {
+  assert.deepEqual(IMMUNITY_EFFECTS, ['slow', 'distract', 'lure']);
+});
+
+test('enemy immuneTo must be a subset of IMMUNITY_EFFECTS', () => {
+  assert.ok(validateEnemy(enemy({ immuneTo: ['splash'] })).length);
+  assert.ok(validateEnemy(enemy({ immuneTo: 'slow' })).length);
+  assert.deepEqual(validateEnemy(enemy({ immuneTo: ['slow', 'distract', 'lure'] })), []);
+  assert.deepEqual(validateEnemy(enemy({ immuneTo: [] })), []);
+});
+
+test('enemy quotes: up to 10 non-empty strings of at most 120 chars', () => {
+  assert.ok(validateEnemy(enemy({ quotes: ['x'.repeat(121)] })).length);
+  assert.deepEqual(validateEnemy(enemy({ quotes: ['x'.repeat(120)] })), []);
+  assert.ok(validateEnemy(enemy({ quotes: ['  '] })).length);
+  assert.ok(validateEnemy(enemy({ quotes: [3] })).length);
+  assert.ok(validateEnemy(enemy({ quotes: 'hi' })).length);
+  assert.ok(validateEnemy(enemy({ quotes: Array(11).fill('hi') })).length);
+  assert.deepEqual(validateEnemy(enemy({ quotes: Array(10).fill('hi') })), []);
+  assert.deepEqual(validateEnemy(enemy({ quotes: [] })), []);
+});
+
+test('fallbackSprite must be a non-empty emoji, not a URL', () => {
+  assert.ok(validateEnemy(enemy({ fallbackSprite: 'https://x.test/a.png' })).length);
+  assert.ok(validateEnemy(enemy({ fallbackSprite: '' })).length);
+  assert.ok(validateEnemy(enemy({ fallbackSprite: undefined })).length);
+  assert.ok(validateWeapon(weapon({ fallbackSprite: 'http://x.test/a.png' })).length);
+  assert.ok(validateWeapon(weapon({ fallbackSprite: ' ' })).length);
+  assert.deepEqual(validateWeapon(weapon({ sprite: 'https://x.test/a.png', fallbackSprite: '🍺' })), []);
 });

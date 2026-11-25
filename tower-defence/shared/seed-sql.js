@@ -6,8 +6,8 @@ const RESERVED = new Set(['end']);
 const ident = (name) => (RESERVED.has(name) ? `"${name}"` : name);
 const quote = (s) => `'${String(s).replaceAll("'", "''")}'`;
 
-// The only text[] column; every other array/object column is jsonb.
-const TEXT_ARRAY_COLUMNS = new Set(['weapon_ids']);
+// The text[] columns; every other array/object column (including enemies.quotes) is jsonb.
+const TEXT_ARRAY_COLUMNS = new Set(['weapon_ids', 'immune_to', 'enemy_ids']);
 
 export function sqlLiteral(value, { textArray = false } = {}) {
   if (value === null || value === undefined) return 'null';
