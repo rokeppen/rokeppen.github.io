@@ -54,6 +54,10 @@ test('every weapon and enemy passes catalog validation', () => {
   for (const e of raw.enemies) assert.deepEqual(validateEnemy(e), [], e.id);
 });
 
+test('splash weapons carry no effect duration (it would be ignored)', () => {
+  for (const w of raw.weapons.filter(x => x.effect === 'splash')) assert.equal(w.effectDuration, 0, w.id);
+});
+
 test('distract and lure towers never keep a permanent stall (fireRate x duration < 1)', () => {
   for (const w of raw.weapons.filter(x => x.effect === 'distract' || x.effect === 'lure')) {
     let fr = w.fireRate;

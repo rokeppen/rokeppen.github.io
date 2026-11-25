@@ -38,9 +38,12 @@ const ed = {
   history: [],       // previous drafts for undo
   paint: null,       // active pointer stroke
   busy: false,
-  // Generate panel settings. `seed` is the last one used (shown as "Party #seed"); `result` is
-  // the draft that generation produced, so re-rolling it doesn't ask to discard it again.
-  gen: { size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed: null, result: null },
+  // Generate panel settings. `seed` is the last one used (shown as "Party #seed"). `result` is
+  // the draft that generation produced and `base` the draft as loaded (incl. editor repairs, e.g.
+  // a legacy level's derived guest list): replacing either loses nothing the admin made, so
+  // Generate/Re-roll doesn't ask first. Guest/weapon list toggles carry both along (the lists
+  // are the generator's input and survive generation).
+  gen: { size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed: null, result: null, base: null },
   // Bar image. `barEmoji` is the emoji shown without an image (or when it fails to load); it
   // is the draft's barSprite whenever that isn't an image URL.
   barEmoji: DEFAULT_BAR_SPRITE,
@@ -98,6 +101,7 @@ function load(level, { isNew = false } = {}) {
   ed.barMessage = '';
   ed.gen.seed = null;
   ed.gen.result = null;
+  ed.gen.base = draft;
 }
 
 function confirmDiscard() {
@@ -294,8 +298,7 @@ const SECTIONS = [
   { id: 'generate', render: generateSection },
   { id: 'map', render: mapSection },
   { id: 'settings', render: settingsSection },
-  { id: 'weapons', render: weaponsSection },
-  { id: 'guests', render: guestsSection },
+  { id: 'lineup', render: lineupSection },
   { id: 'waves', render: wavesSection },
 ];
 
@@ -469,8 +472,8 @@ function settingsSection() {
   return h('section', { className: 'le-section le-settings', 'aria-label': 'Starting resources' },
     h('h3', {}, 'Starting resources'),
     h('div', { className: 'le-fields' },
-      field('startingCorks', 'Starting corks', 'Corks to spend on weapons at the start'),
-      field('startingWine', 'Starting wine (bottles)', 'Lives: a guest reaching the end drinks some wine')),
+      field('startingCorks', 'Starting caps 🧢', 'Bottle caps to spend on weapons at the start'),
+      field('startingWine', 'Starting kegs 🍺', 'Lives: each guest that reaches the beer bar drains some kegs')),
     barImageFields());
 }
 
@@ -560,30 +563,38 @@ function clearBarImage() {
   update({ ...ed.draft, barSprite: emoji }, { render: ['settings'] });
 }
 
-// ---------- guest list and weapon chips ----------
-// The same chips appear in the Guests section and the Generate panel: both edit the level's
-// own enemyIds / weaponIds.
+// ---------- guest list and weapon list ----------
+// One place edits the level's own enemyIds / weaponIds: the "Guests & weapons" section. The
+// Generate panel only summarises them (they are level data the generator reads, not generator
+// settings), so there is never a second set of toggles to keep in sync.
 
-const LIST_PARTS = ['generate', 'weapons', 'guests', 'waves'];
+const LIST_PARTS = ['generate', 'lineup', 'waves'];
 const guestList = () => (Array.isArray(ed.draft.enemyIds) ? ed.draft.enemyIds : []);
 const weaponList = () => (Array.isArray(ed.draft.weaponIds) ? ed.draft.weaponIds : []);
 const guestName = (id) => catalog().enemies.find((e) => e.id === id)?.name ?? `'${id}'`;
 
+// A list toggle on an untouched generated result (or the level as loaded) keeps it counting as
+// that, so Re-roll/Generate doesn't then ask to discard "changes": generation keeps the lists.
+function updateLists(next) {
+  if (ed.draft === ed.gen.result) ed.gen.result = next;
+  if (ed.draft === ed.gen.base) ed.gen.base = next;
+  update(next, { render: LIST_PARTS });
+}
+
 function toggleGuest(id) {
   const listed = guestList();
-  if (!listed.includes(id)) { update(setGuests(ed.draft, [...listed, id]), { render: LIST_PARTS }); return; }
+  if (!listed.includes(id)) { updateLists(setGuests(ed.draft, [...listed, id])); return; }
   const waves = guestWaves(ed.draft, id);
   if (waves.length && !confirm(
     `${guestName(id)} ${waves.length === 1 ? 'is in wave' : 'is in waves'} ${waves.join(', ')}. `
     + 'Taking them off the guest list removes their groups from those waves '
     + '(a wave left without guests is removed too). Continue?')) return;
-  update(setGuests(ed.draft, listed.filter((x) => x !== id)), { render: LIST_PARTS });
+  updateLists(setGuests(ed.draft, listed.filter((x) => x !== id)));
 }
 
 function toggleWeapon(id) {
   const listed = weaponList();
-  const next = listed.includes(id) ? listed.filter((x) => x !== id) : [...listed, id];
-  update(setWeapons(ed.draft, next), { render: LIST_PARTS });
+  updateLists(setWeapons(ed.draft, listed.includes(id) ? listed.filter((x) => x !== id) : [...listed, id]));
 }
 
 // A catalog sprite for a chip: an image URL as a small <img> (its emoji on error), else the emoji.
@@ -595,11 +606,15 @@ function chipSprite(item) {
   return img;
 }
 
-function chip(item, label, on, onclick, { missing = false } = {}) {
+// A sprite as plain text (for <option>s and summaries): an image URL shows its fallback emoji.
+const spriteText = (item) => (isUrl(item?.sprite) ? item?.fallbackSprite ?? '' : item?.sprite ?? '');
+
+function chip(item, label, on, onclick, { missing = false, extra = '' } = {}) {
   return h('button', {
     type: 'button', className: `le-chip${missing ? ' missing' : ''}`, 'aria-pressed': String(on),
     title: on ? `Take ${label} off the list` : `Add ${label}`, onclick,
-  }, h('span', { className: 'le-chip-sprite' }, chipSprite(item)), h('span', { textContent: label }));
+  }, h('span', { className: 'le-chip-sprite' }, chipSprite(item)), h('span', { textContent: label }),
+  extra ? h('span', { className: 'le-chip-extra', textContent: extra }) : null);
 }
 
 function chipGroup(kind) {
@@ -607,8 +622,9 @@ function chipGroup(kind) {
   const items = isGuests ? catalog().enemies : catalog().weapons;
   const listed = isGuests ? guestList() : weaponList();
   const toggle = isGuests ? toggleGuest : toggleWeapon;
+  const extra = (it) => (isGuests ? '' : `${it.cost ?? '?'} 🧢`);
   const chips = [
-    ...items.map((it) => chip(it, it.name ?? it.id, listed.includes(it.id), () => toggle(it.id))),
+    ...items.map((it) => chip(it, it.name ?? it.id, listed.includes(it.id), () => toggle(it.id), { extra: extra(it) })),
     ...listed.filter((id) => !items.some((it) => it.id === id))
       .map((id) => chip(null, `'${id}' (no longer exists)`, true, () => toggle(id), { missing: true })),
   ];
@@ -621,11 +637,45 @@ function chipGroup(kind) {
   }, chips);
 }
 
-function guestsSection() {
-  return h('section', { className: 'le-section le-guests', 'aria-label': 'Guests' },
-    h('h3', {}, 'Guests in this level'),
-    h('p', { className: 'le-hint' }, 'Only listed guests can be put in waves.'),
-    chipGroup('guests'));
+function lineupSection() {
+  const g = guestList().length;
+  const w = weaponList().length;
+  return h('section', { className: 'le-section le-lineup', id: 'le-lineup', 'aria-label': 'Guests and weapons', tabIndex: -1 },
+    h('h3', {}, 'Guests & weapons'),
+    h('div', { className: 'le-lineup-grid' },
+      h('div', {},
+        h('div', { className: 'le-gen-label', textContent: `Guest list (${g})` }),
+        h('p', { className: 'le-hint le-sub' }, 'Only listed guests can be put in waves or generated.'),
+        chipGroup('guests')),
+      h('div', {},
+        h('div', { className: 'le-gen-label', textContent: `Weapons players can build (${w})` }),
+        h('p', { className: 'le-hint le-sub' }, 'Cost in bottle caps 🧢.'),
+        chipGroup('weapons'))));
+}
+
+// The Generate panel's read-only view of the two lists, with a jump to where they're edited.
+function listSummary() {
+  const row = (label, ids, items) => {
+    const known = ids.map((id) => items.find((it) => it.id === id)).filter(Boolean);
+    return h('div', { className: 'le-gen-uses-row' },
+      h('strong', { textContent: `${label} (${known.length})` }),
+      h('span', { className: 'le-gen-uses-sprites' },
+        known.length ? known.map((it) => h('span', { className: 'le-chip-sprite', title: it.name ?? it.id }, chipSprite(it)))
+          : h('span', { className: 'muted', textContent: 'none' })));
+  };
+  const jump = h('button', {
+    type: 'button', className: 'secondary le-jump', textContent: 'Edit the lists ↓',
+    onclick: () => {
+      const target = ed.parts.lineup?.querySelector('.le-lineup');
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target?.focus({ preventScroll: true });
+    },
+  });
+  return h('div', { className: 'le-gen-uses' },
+    h('div', { className: 'le-gen-label', textContent: "Uses this level's guests & weapons" }),
+    row('Guests', guestList(), catalog().enemies),
+    row('Weapons', weaponList(), catalog().weapons),
+    jump);
 }
 
 // ---------- Generate panel ----------
@@ -642,10 +692,11 @@ function genOpts(seed) {
 }
 
 // Generate and Re-roll both draw a new seed. Over unsaved edits (other than an earlier
-// generated result) it asks first; the result is a normal unsaved draft (Undo restores).
+// generated result or editor repairs made on load) it asks first; the result is a normal
+// unsaved draft (Undo restores).
 function generate() {
   if (!canGenerate(genOpts(0), catalog()).ok) return;
-  if (isDirty() && ed.draft !== ed.gen.result && !confirm(
+  if (isDirty() && ed.draft !== ed.gen.result && ed.draft !== ed.gen.base && !confirm(
     `Generating replaces the map, waves and starting resources of "${ed.draft.name || 'this level'}". `
     + 'Discard your unsaved changes? (Undo brings them back.)')) return;
   const seed = randomSeed();
@@ -695,16 +746,13 @@ function generateSection() {
         segmented('Size', Object.entries(SIZES).map(([k, [c, r]]) => [k, `${SIZE_LABELS[k] ?? cap(k)} ${c}×${r}`]),
           g.size, (v) => set({ size: v })),
         lbl('Difficulty'),
-        segmented('Difficulty', DIFFICULTIES.map((d) => [d, cap(d)]), g.difficulty, (v) => set({ difficulty: v })),
+        segmented('Difficulty', DIFFICULTIES.map((d) => [d, cap(d)]), g.difficulty, (v) => set({ difficulty: v }))),
+      h('div', {},
         lbl('Path'),
         h('div', { className: 'le-gen-row' }, h('span', { textContent: 'Straight' }), twisty, h('span', { textContent: 'Twisty' })),
         lbl('Waves'),
-        h('div', { className: 'le-gen-row' }, waves, h('span', { textContent: 'waves (1–20)' }))),
-      h('div', {},
-        lbl('Guests in this level'),
-        chipGroup('guests'),
-        lbl('Weapons in this level'),
-        chipGroup('weapons'))),
+        h('div', { className: 'le-gen-row' }, waves, h('span', { textContent: 'waves (1–20)' })))),
+    listSummary(),
     h('div', { className: 'le-gen-actions' },
       h('button', {
         type: 'button', className: 'le-generate-btn', textContent: '🎲 Generate', disabled: !check.ok,
@@ -717,31 +765,6 @@ function generateSection() {
       }),
       g.seed === null ? null : h('output', { className: 'le-seed', 'aria-label': 'Seed', textContent: `Party #${g.seed}` })),
     check.ok ? null : h('p', { className: 'le-reasons', role: 'status', textContent: check.reason }));
-}
-
-function weaponsSection() {
-  const weapons = catalog().weapons;
-  const chosen = Array.isArray(ed.draft.weaponIds) ? ed.draft.weaponIds : [];
-  const missing = chosen.filter((id) => !weapons.some((w) => w.id === id));
-  const boxes = [];
-  const onchange = () => update(setWeapons(ed.draft, boxes.filter((b) => b.checked).map((b) => b.dataset.id)), { render: ['generate'] });
-  const option = (id, ...label) => {
-    const box = h('input', { type: 'checkbox', checked: chosen.includes(id), onchange, dataset: { id } });
-    boxes.push(box);
-    return h('li', {}, h('label', { className: 'le-check' }, box, ...label));
-  };
-  const items = [
-    ...weapons.map((w) => option(w.id,
-      h('span', { className: 'le-sprite', textContent: w.sprite ?? '' }),
-      h('span', { textContent: w.name ?? w.id }),
-      h('span', { className: 'le-cost', textContent: `${w.cost ?? '?'} corks` }))),
-    ...missing.map((id) => option(id, h('span', { className: 'le-missing', textContent: `'${id}' (no longer exists)` }))),
-  ];
-  return h('section', { className: 'le-section le-weapons', 'aria-label': 'Weapons' },
-    h('h3', {}, 'Weapons available in this level'),
-    items.length
-      ? h('ul', { className: 'le-weapon-list' }, items)
-      : h('p', { className: 'muted' }, 'No weapons yet — create one on the Weapons tab first.'));
 }
 
 // Listed guests that exist in the catalog: the only ones the wave editor offers.
@@ -767,7 +790,8 @@ function wavesSection() {
 
 function waveCard(wave, wi, count, enemies) {
   const label = `Wave ${wi + 1}`;
-  const all = catalog().enemies; // the summary shows every known guest's sprite, listed or not
+  // The summary shows every known guest's sprite, listed or not (image guests as their emoji).
+  const all = catalog().enemies.map((e) => ({ ...e, sprite: spriteText(e) }));
   const summary = h('span', { className: 'le-wave-summary', textContent: waveSummary(wave, all) });
   const refreshSummary = () => { summary.textContent = waveSummary(ed.draft.waves[wi], all); };
   const structural = (next) => update(next, { render: ['waves'] });
@@ -806,7 +830,7 @@ function groupRow(g, wi, gi, enemies, refreshSummary, structural) {
   // Field edits don't re-render the section (keeps focus while tabbing); only the summary updates.
   const set = (patch) => { update(updateGroup(ed.draft, wi, gi, patch), { render: [] }); refreshSummary(); };
   const select = h('select', { 'aria-label': `${at}: guest`, onchange: () => set({ enemyId: select.value }) },
-    enemies.map((e) => h('option', { value: e.id, textContent: `${e.sprite ?? ''} ${e.name ?? e.id}`.trim() })),
+    enemies.map((e) => h('option', { value: e.id, textContent: `${spriteText(e)} ${e.name ?? e.id}`.trim() })),
     enemies.some((e) => e.id === g.enemyId) ? null
       : h('option', {
         value: String(g.enemyId),
@@ -894,11 +918,12 @@ function mapGrid() {
   return grid;
 }
 
+// Swatch colours come from the same CSS variables as the map tiles (level-editor.css).
 function legend() {
-  const item = (bg, text) => h('li', {}, h('i', { style: { background: bg } }), text);
+  const item = (cls, text) => h('li', {}, h('i', { className: `le-swatch ${cls}` }), text);
   return h('ul', { className: 'le-legend' },
-    item('#2e7d32', 'S start'), item('#7b1e3a', 'E end'), item('#d9b98c', 'path (numbered in order)'),
-    item('#6d5a4b', '✕ blocked'), item('#8fbf6a', 'buildable'));
+    item('start', 'S door (start)'), item('end', 'E beer bar (end)'), item('path', 'path (numbered in order)'),
+    item('blocked', '✕ furniture (blocked)'), item('floor', 'floor (buildable)'));
 }
 
 // ---------- pointer painting ----------

@@ -153,7 +153,7 @@ function setupProblems(level, catalog) {
   const chosen = Array.isArray(level.weaponIds) ? level.weaponIds : [];
   if (chosen.length === 0) errors.push('Pick at least one weapon.');
   for (const id of chosen) {
-    if (!weaponIds.has(id)) errors.push(`Weapon '${id}' no longer exists — untick it.`);
+    if (!weaponIds.has(id)) errors.push(`Weapon '${id}' no longer exists — take it off the weapon list.`);
   }
   const explicitGuests = Array.isArray(level.enemyIds);
   const guests = new Set(levelEnemyIds(level));
@@ -166,8 +166,8 @@ function setupProblems(level, catalog) {
   if (level.barSprite != null && String(level.barSprite).trim() === '') {
     errors.push('Pick a bar emoji or upload a bar image.');
   }
-  if (!isInt(level.startingCorks, 1)) errors.push('Starting corks must be a whole number of at least 1.');
-  if (!isInt(level.startingWine, 1)) errors.push('Starting wine must be a whole number of at least 1.');
+  if (!isInt(level.startingCorks, 1)) errors.push('Starting caps must be a whole number of at least 1.');
+  if (!isInt(level.startingWine, 1)) errors.push('Starting kegs must be a whole number of at least 1.');
   const waves = Array.isArray(level.waves) ? level.waves : [];
   if (waves.length === 0) errors.push('Add at least one wave.');
   waves.forEach((wave, wi) => {
@@ -394,8 +394,8 @@ export function prepareForEditor(raw, catalog = {}) {
     warnings.push(`${what} was missing or invalid and was set to ${fallback}.`);
     return fallback;
   };
-  const startingCorks = number(src.startingCorks, 100, 'Starting corks');
-  const startingWine = number(src.startingWine, 20, 'Starting wine');
+  const startingCorks = number(src.startingCorks, 100, 'Starting caps');
+  const startingWine = number(src.startingWine, 20, 'Starting kegs');
 
   const waves = [];
   if (Array.isArray(src.waves)) {

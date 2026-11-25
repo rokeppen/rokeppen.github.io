@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { toSeedSql, sqlLiteral } from '../shared/seed-sql.js';
+
+const readSql = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+test('upgrade-beer-party.sql is up to date and has no misleading run-order line', () => {
+  const upgrade = readSql('../supabase/upgrade-beer-party.sql');
+  assert.ok(!/Run this first, then seed\.sql/.test(upgrade));
+  assert.ok(upgrade.includes(readSql('../supabase/seed.sql')), 'contains the current seed.sql (run npm run upgrade-sql)');
+  assert.ok(upgrade.includes('alter table public.weapons add column if not exists fallback_sprite text;'));
+});
 
 const data = {
   weapons: [{

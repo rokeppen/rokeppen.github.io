@@ -5,7 +5,6 @@
 -- Beer party refresh: guest quotes/immunities, fallback emoji, per-level guest lists,
 -- bar sprite, Café replaces Wine Tasting, and the `sprites` Storage bucket.
 -- For an existing project that already ran schema.sql. Idempotent: safe to re-run.
--- Run this first, then seed.sql.
 
 -- 1. New columns
 alter table public.weapons add column if not exists fallback_sprite text;
@@ -103,7 +102,7 @@ values ('pizza-hut', 'Pizza Hut Delivery', 'Free pizza lures the whole crowd off
 on conflict (id) do update set name = excluded.name, description = excluded.description, sprite = excluded.sprite, cost = excluded.cost, range = excluded.range, damage = excluded.damage, fire_rate = excluded.fire_rate, effect = excluded.effect, effect_strength = excluded.effect_strength, effect_duration = excluded.effect_duration, upgrades = excluded.upgrades, fallback_sprite = excluded.fallback_sprite;
 
 insert into public.weapons (id, name, description, sprite, cost, range, damage, fire_rate, effect, effect_strength, effect_duration, upgrades, fallback_sprite)
-values ('hr-talk', 'HR Talk', 'A mandatory presentation on responsible kegstand conduct. Splash damage to morale.', '🗣️', 150, 3, 12, 0.6, 'splash', 1.2, 1, '[{"cost":90,"damage":18,"effectStrength":1.5},{"cost":150,"damage":26,"range":3.5,"fireRate":0.8,"effectStrength":1.8}]'::jsonb, '🗣️')
+values ('hr-talk', 'HR Talk', 'A mandatory presentation on responsible kegstand conduct. Splash damage to morale.', '🗣️', 150, 3, 12, 0.6, 'splash', 1.2, 0, '[{"cost":90,"damage":18,"effectStrength":1.5},{"cost":150,"damage":26,"range":3.5,"fireRate":0.8,"effectStrength":1.8}]'::jsonb, '🗣️')
 on conflict (id) do update set name = excluded.name, description = excluded.description, sprite = excluded.sprite, cost = excluded.cost, range = excluded.range, damage = excluded.damage, fire_rate = excluded.fire_rate, effect = excluded.effect, effect_strength = excluded.effect_strength, effect_duration = excluded.effect_duration, upgrades = excluded.upgrades, fallback_sprite = excluded.fallback_sprite;
 
 insert into public.enemies (id, name, description, sprite, hp, speed, reward, wine_damage, quotes, immune_to, fallback_sprite)

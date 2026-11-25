@@ -3,6 +3,8 @@
 import { validateLevel } from '../shared/model.js';
 
 export const EFFECTS = ['none', 'slow', 'distract', 'lure', 'splash'];
+// Effects that last a while after the hit: they need an effectDuration > 0.
+export const TIMED_EFFECTS = ['slow', 'distract', 'lure'];
 export const UPGRADE_FIELDS = ['cost', 'damage', 'range', 'fireRate', 'effectStrength'];
 // Effects a guest can be immune to (damage still applies).
 export const IMMUNITY_EFFECTS = ['slow', 'distract', 'lure'];
@@ -73,11 +75,10 @@ export function validateWeapon(w) {
     errors.push(`effect must be one of ${EFFECTS.join(', ')}`);
   }
   checkNumber(errors, 'effectStrength', w.effectStrength, { zeroOk: true });
-  if (w.effect !== 'none' && EFFECTS.includes(w.effect)) {
-    checkNumber(errors, 'effectDuration', w.effectDuration);
-    if (w.effect === 'slow' && isNum(w.effectStrength) && w.effectStrength >= 1) {
-      errors.push('effectStrength must be below 1 for slow');
-    }
+  // none/splash have no lasting effect, so their duration is ignored (0 by convention).
+  if (TIMED_EFFECTS.includes(w.effect)) checkNumber(errors, 'effectDuration', w.effectDuration);
+  if (w.effect === 'slow' && isNum(w.effectStrength) && w.effectStrength >= 1) {
+    errors.push('effectStrength must be below 1 for slow');
   }
   (w.upgrades ?? []).forEach((u, i) => {
     const tier = `upgrade ${i + 1}`;

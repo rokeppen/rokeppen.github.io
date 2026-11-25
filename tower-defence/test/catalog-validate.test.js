@@ -33,10 +33,17 @@ test('weapon cost must be an integer', () => {
   assert.ok(validateWeapon(weapon({ cost: 10.5 })).length);
 });
 
-test('effect must be known; non-none effects need a duration', () => {
+test('effect must be known; slow/distract/lure need a duration', () => {
   assert.ok(validateWeapon(weapon({ effect: 'explode' })).length);
-  assert.ok(validateWeapon(weapon({ effect: 'distract', effectDuration: 0 })).length);
-  assert.deepEqual(validateWeapon(weapon({ effect: 'distract', effectDuration: 3 })), []);
+  for (const effect of ['slow', 'distract', 'lure']) {
+    assert.ok(validateWeapon(weapon({ effect, effectStrength: 0.4, effectDuration: 0 })).length, effect);
+    assert.deepEqual(validateWeapon(weapon({ effect, effectStrength: 0.4, effectDuration: 3 })), [], effect);
+  }
+});
+
+test('splash and none need no duration (0 is fine)', () => {
+  assert.deepEqual(validateWeapon(weapon({ effect: 'splash', effectStrength: 1.2, effectDuration: 0 })), []);
+  assert.deepEqual(validateWeapon(weapon({ effect: 'none', effectDuration: 0 })), []);
 });
 
 test('slow strength must be below 1', () => {

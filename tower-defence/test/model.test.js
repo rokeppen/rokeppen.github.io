@@ -99,7 +99,7 @@ test('validateLevel treats bad starting wine or corks as fatal', () => {
   ]) {
     const { level: out, errors } = validateLevel(makeLevel(patch), catalog);
     assert.equal(out, null, JSON.stringify(patch));
-    assert.ok(errors.some(e => /starting (wine|corks)/.test(e)), `${JSON.stringify(patch)}: ${errors.join('; ')}`);
+    assert.ok(errors.some(e => /starting (kegs|caps)/.test(e)), `${JSON.stringify(patch)}: ${errors.join('; ')}`);
   }
   assert.ok(validateLevel(makeLevel({ startingCorks: 0, startingWine: 1 }), catalog).level);
 });

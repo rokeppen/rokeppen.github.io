@@ -30,3 +30,21 @@ To confirm the game reads from the database, open `play.html` with the browser c
 open: it logs `Game data loaded from db.` If it logs `Game data loaded from fallback.`
 instead, a `Using fallback data: ...` warning just before it says why (for example a
 missing grant, no published levels, or a timeout).
+
+## Upgrade an existing project (beer party)
+
+For a project that was set up before the beer-party release (it already ran `schema.sql`):
+
+1. In the **SQL editor**, run `upgrade-beer-party.sql` once. It is the migration followed
+   by `seed.sql`, in one file. (Equivalent: run `migrations/2026-11-25-beer-party.sql`, then
+   `seed.sql`.) Both are safe to re-run. The migration gives every existing level a guest
+   list (the guests its waves use) and swaps Wine Tasting for Café; the seed then upserts the
+   bundled weapons, guests and levels by id. Levels you made yourself keep their rows.
+2. Under **Storage**, check that the `sprites` bucket exists and is public. If it doesn't,
+   the migration's bucket step didn't run: run the migration again.
+3. Open `play.html` with the browser console open and check it logs
+   `Game data loaded from db.` (not `... from fallback.`; see above for what the warning
+   before it means).
+
+Regenerate the files after changing `fallback-data.json`: `npm run seed`, then
+`npm run upgrade-sql` (both from `tower-defence/`).

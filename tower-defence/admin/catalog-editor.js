@@ -3,7 +3,7 @@
 // textContent / .value (never innerHTML).
 import { state, refresh } from './admin.js';
 import {
-  validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, EFFECTS,
+  validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, EFFECTS, TIMED_EFFECTS,
   IMMUNITY_EFFECTS, MAX_QUOTES, MAX_QUOTE_LENGTH,
 } from './catalog-validate.js';
 import { ALLOWED_TYPES, validateImageFile } from './upload-validate.js';
@@ -333,7 +333,7 @@ function weaponFields(draft, ctx) {
     field(draft, 'name', 'Name').wrap,
     field(draft, 'description', 'Description', 'textarea').wrap,
     ...spriteFields(draft, ctx, '❔'),
-    field(draft, 'cost', 'Cost (corks)', 'number', { min: 1, step: 1 }).wrap,
+    field(draft, 'cost', 'Cost (caps 🧢)', 'number', { min: 1, step: 1 }).wrap,
     field(draft, 'range', 'Range (tiles)', 'number', { min: 0 }).wrap,
     field(draft, 'damage', 'Damage', 'number', { min: 0 }).wrap,
     field(draft, 'fireRate', 'Fire rate (shots/s)', 'number', { min: 0 }).wrap,
@@ -341,10 +341,21 @@ function weaponFields(draft, ctx) {
 
   const effectSelect = h('select', {}, ...EFFECTS.map((v) => h('option', { value: v, textContent: v })));
   effectSelect.value = draft.effect;
-  const strength = field(draft, 'effectStrength', 'Effect strength (slow: 0-1 fraction)', 'number', { min: 0 });
+  const strength = field(draft, 'effectStrength', 'Effect strength', 'number', { min: 0 });
   const duration = field(draft, 'effectDuration', 'Effect duration (s)', 'number', { min: 0 });
   const effectBox = h('div', { className: 'effect-fields' }, strength.wrap, duration.wrap);
-  const syncEffect = () => { effectBox.hidden = draft.effect === 'none'; };
+  const STRENGTH_LABELS = {
+    slow: 'Slow strength (0–1: 0.4 = 40% slower)',
+    splash: 'Splash radius (tiles)',
+    distract: 'Effect strength (unused by distract)',
+    lure: 'Effect strength (unused by lure)',
+  };
+  // Splash hits once, so it has no duration; slow/distract/lure last effectDuration seconds.
+  const syncEffect = () => {
+    effectBox.hidden = draft.effect === 'none';
+    duration.wrap.hidden = !TIMED_EFFECTS.includes(draft.effect);
+    strength.wrap.firstChild.textContent = STRENGTH_LABELS[draft.effect] ?? 'Effect strength';
+  };
   effectSelect.onchange = () => { draft.effect = effectSelect.value; syncEffect(); };
   syncEffect();
   out.push(h('label', { className: 'field' }, h('span', {}, 'Effect'), effectSelect), effectBox);
@@ -387,6 +398,7 @@ export function mountWeapons(el) {
     }),
     normalize: (w) => {
       if (w.effect === 'none') { w.effectStrength = 0; w.effectDuration = 0; }
+      if (w.effect === 'splash') w.effectDuration = 0; // splash has no lasting effect
       normalizeSprite(w);
     },
     buildFields: weaponFields,
@@ -418,8 +430,8 @@ export function mountEnemies(el) {
       ...spriteFields(draft, ctx, '👤'),
       field(draft, 'hp', 'HP', 'number', { min: 0 }).wrap,
       field(draft, 'speed', 'Speed (tiles/s)', 'number', { min: 0 }).wrap,
-      field(draft, 'reward', 'Reward (corks)', 'number', { min: 1, step: 1 }).wrap,
-      field(draft, 'wineDamage', 'Wine damage', 'number', { min: 1, step: 1 }).wrap,
+      field(draft, 'reward', 'Reward (caps 🧢)', 'number', { min: 1, step: 1 }).wrap,
+      field(draft, 'wineDamage', 'Kegs drained per guest (🍺 lost when it reaches the beer bar)', 'number', { min: 1, step: 1 }).wrap,
       quotesField(draft),
       immunityField(draft),
     ],

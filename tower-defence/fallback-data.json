@@ -118,7 +118,7 @@
       "fireRate": 0.6,
       "effect": "splash",
       "effectStrength": 1.2,
-      "effectDuration": 1,
+      "effectDuration": 0,
       "upgrades": [
         {
           "cost": 90,

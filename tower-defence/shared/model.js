@@ -104,11 +104,11 @@ export function validateLevel(level, catalog) {
   }
 
   if (!isNum(level.startingWine) || level.startingWine < 1) {
-    errors.push(`${name}: starting wine must be a number >= 1`);
+    errors.push(`${name}: starting kegs must be a number >= 1`);
     return { level: null, errors };
   }
   if (!isNum(level.startingCorks) || level.startingCorks < 0) {
-    errors.push(`${name}: starting corks must be a number >= 0`);
+    errors.push(`${name}: starting caps must be a number >= 0`);
     return { level: null, errors };
   }
   if (keptWeapons.length === 0) {

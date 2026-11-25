@@ -1,48 +1,100 @@
-/* These custom properties mirror the game palette in game/theme.js (warm office-party look). */
+/* These custom properties mirror PALETTE in game/theme.js (pastel "flat 2D" beer-party look:
+   light sky page, white cards, chunky buttons with a solid bottom edge). Keep them in step. */
 :root {
-  --wood: #c8a37a;
-  --cream: #f6ecd9;
-  --wine: #7b1e3a;
-  --wine-dark: #5a1229;
-  --text: #2b1d16;
-  --muted: #7a6656;
-  --line: #d9c6a5;
-  --warn-bg: #fff1c2;
-  --error: #b00020;
+  --bg-top: #e6f3ff;          /* backgroundTop */
+  --bg-bottom: #cfe6f7;       /* backgroundBottom */
+  --card: #ffffff;            /* card */
+  --panel: #f5f9fd;           /* page panel behind the cards (between card and iconTile) */
+  --text: #23384d;            /* text */
+  --muted: #6b8299;           /* muted */
+  --line: #c9d6e3;            /* iconTileEdge / ghostEdge */
+  --tile: #eef3f8;            /* iconTile */
+  --navy: #23384d;            /* navy */
+  --navy-edge: #0f1e2c;       /* navyEdge */
+  --navy-hover: #2f4a66;      /* navyHover */
+  --gold: #ffd66b;            /* gold */
+  --gold-edge: #d9a520;       /* goldEdge */
+  --gold-hover: #ffe08f;      /* goldHover */
+  --gold-text: #5a3d00;       /* goldText */
+  --ghost-hover: #f3f7fb;     /* ghostHover */
+  --good: #2bb673;            /* good */
+  --good-edge: #1a8a55;       /* tierPipEdge */
+  --good-text: #1a7f4f;       /* goodText */
+  --good-soft: #c9f2d9;       /* buildableHover */
+  --error: #c93c3c;           /* danger */
+  --warn-bg: #fff4d1;
+  --warn-edge: #e0b65c;       /* barEdge */
+  --board: #f7f1e8;           /* board */
+  --board-edge: #ddcfb8;      /* boardEdge */
+  --floor: #fbf7f0;           /* floor */
+  --path: #e06262;            /* path */
+  --path-edge: #b94a4a;       /* pathEdge */
+  --blocked: #7590ac;         /* blocked (furniture) */
+  --blocked-edge: #58718c;    /* blockedEdge */
+  --bar: #ffe3a3;             /* bar */
+  --bar-edge: #e0b65c;        /* barEdge */
+  --shadow: rgba(40, 70, 110, .15); /* shadow at low alpha */
+  --radius: 14px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--wood); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
-#app { max-width: 1100px; margin: 24px auto; padding: 24px; background: var(--cream); border-radius: 10px; min-height: 60vh; }
-h1 { margin: 0 0 16px; color: var(--wine); font-size: 1.5rem; }
+body {
+  margin: 0; min-height: 100vh; color: var(--text);
+  background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom)) fixed var(--bg-bottom);
+  font: 16px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+#app { max-width: 1180px; margin: 24px auto; padding: 24px; background: var(--panel); border-radius: 18px; box-shadow: 0 6px 16px var(--shadow); min-height: 60vh; }
+@media (max-width: 600px) { #app { margin: 0; padding: 16px; border-radius: 0; } }
+h1 { margin: 0 0 16px; color: var(--text); font-size: 1.5rem; font-weight: 800; }
 .muted { color: var(--muted); }
 .error { color: var(--error); min-height: 1.5em; margin: 8px 0 0; }
-button { font: inherit; padding: 6px 14px; border: 1px solid var(--wine); border-radius: 6px; background: var(--wine); color: var(--cream); cursor: pointer; }
-button:hover:not(:disabled) { background: var(--wine-dark); }
+:focus-visible { outline: 3px solid var(--good); outline-offset: 2px; }
+
+/* Chunky buttons: navy primary, white "ghost" secondary, both with a solid bottom edge. */
+button {
+  font: inherit; font-weight: 700; padding: 6px 14px; border: 0; border-radius: 10px;
+  background: var(--navy); color: #fff; box-shadow: 0 3px 0 var(--navy-edge); cursor: pointer;
+  position: relative; top: 0;
+}
+button:hover:not(:disabled) { background: var(--navy-hover); }
+button:active:not(:disabled) { top: 2px; box-shadow: 0 1px 0 var(--navy-edge); }
 button:disabled { opacity: .5; cursor: not-allowed; }
-button.secondary { background: transparent; color: var(--wine); }
-button.secondary:hover:not(:disabled) { background: var(--line); }
+button.secondary { background: var(--card); color: var(--text); box-shadow: 0 3px 0 var(--line), inset 0 0 0 1px var(--line); }
+button.secondary:hover:not(:disabled) { background: var(--ghost-hover); }
+button.secondary:active:not(:disabled) { box-shadow: 0 1px 0 var(--line), inset 0 0 0 1px var(--line); }
+button.gold { background: var(--gold); color: var(--gold-text); box-shadow: 0 3px 0 var(--gold-edge); }
+button.gold:hover:not(:disabled) { background: var(--gold-hover); }
+
 form.login { display: grid; gap: 12px; max-width: 320px; }
 form.login label { display: grid; gap: 4px; }
-input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
+input, textarea, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text); }
+input:focus, textarea:focus, select:focus { border-color: var(--good); outline: 2px solid var(--good-soft); outline-offset: 0; }
 header.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 header.bar h1 { margin: 0; }
+header.bar h1::before { content: "🍻 "; }
 header.bar .actions { display: flex; gap: 8px; }
-.banner { background: var(--warn-bg); border: 1px solid #d4a72c; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
-nav.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--wine); margin-bottom: 16px; }
-nav.tabs button { background: transparent; color: var(--wine); border: 0; border-radius: 6px 6px 0 0; }
-nav.tabs button[aria-selected="true"] { background: var(--wine); color: var(--cream); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.banner { background: var(--warn-bg); border: 1px solid var(--warn-edge); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+
+/* Tabs: a segmented pill bar, like the Generate panel's size/difficulty pickers. */
+nav.tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--tile); border-radius: 12px; margin-bottom: 18px; }
+nav.tabs button { background: transparent; color: var(--muted); box-shadow: none; border-radius: 9px; padding: 6px 18px; }
+nav.tabs button:hover:not(:disabled) { background: var(--ghost-hover); color: var(--text); }
+nav.tabs button[aria-selected="true"] { background: var(--card); color: var(--text); box-shadow: 0 2px 6px var(--shadow); }
 
 /* Catalog editors (weapons / enemies) */
-.catalog { display: grid; grid-template-columns: 220px 1fr; gap: 20px; }
-.catalog aside { display: grid; gap: 8px; align-content: start; }
-.catalog-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.catalog-list button { width: 100%; text-align: left; }
-.catalog-list button[aria-current="true"] { background: var(--wine); color: var(--cream); }
-.catalog-form { display: grid; gap: 10px; max-width: 640px; }
-.catalog-form h2 { margin: 0; color: var(--wine); font-size: 1.2rem; }
+.catalog { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+.catalog aside { display: grid; gap: 10px; align-content: start; }
+.catalog-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.catalog-list button { width: 100%; text-align: left; display: flex; gap: 8px; align-items: center; }
+.catalog-list button[aria-current="true"] { background: var(--good-soft); box-shadow: 0 3px 0 var(--good), inset 0 0 0 1px var(--good); }
+.catalog-editor { background: var(--tile); border-radius: var(--radius); padding: 16px; min-width: 0; }
+.catalog-form { display: grid; gap: 12px; max-width: 680px; }
+.catalog-form h2 { margin: 0; color: var(--text); font-size: 1.25rem; font-weight: 800; }
 .catalog-form p { margin: 0; }
 .catalog .field { display: grid; gap: 4px; }
-.catalog textarea, .catalog select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
+.catalog .field > span { font-size: .85rem; font-weight: 600; color: var(--muted); }
+.catalog .field[hidden], .catalog .effect-fields[hidden] { display: none; }
+.catalog textarea, .catalog select { font: inherit; }
 .catalog .sprite-preview { font-size: 2.5rem; line-height: 1; min-height: 64px; display: flex; align-items: center; }
 .catalog img.sprite-img { width: 64px; height: 64px; object-fit: contain; }
 .catalog .sprite-thumb { display: inline-block; width: 1.4em; text-align: center; vertical-align: middle; }
@@ -54,11 +106,12 @@ nav.tabs button[aria-selected="true"] { background: var(--wine); color: var(--cr
 .catalog .quote-row input { flex: 1; min-width: 0; }
 .catalog .immunities { display: flex; flex-wrap: wrap; gap: 16px; }
 .catalog .check { display: inline-flex; gap: 4px; align-items: center; }
-.catalog .effect-fields { display: grid; gap: 10px; }
-.catalog .effect-fields[hidden] { display: none; }
-.catalog .actions { display: flex; gap: 8px; }
-.catalog fieldset { border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+.catalog .effect-fields { display: grid; gap: 12px; }
+.catalog fieldset { background: var(--card); border: 0; border-radius: 12px; padding: 10px 14px 14px; box-shadow: 0 2px 0 var(--line); overflow-x: auto; }
+.catalog legend { float: left; width: 100%; padding: 0; margin-bottom: 8px; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.catalog legend + * { clear: both; }
 .catalog table.tiers { border-collapse: collapse; width: 100%; }
-.catalog table.tiers th { text-align: left; font-size: .85rem; }
+.catalog table.tiers th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600; }
+.catalog table.tiers td { padding: 2px 4px 2px 0; }
 .catalog table.tiers input { width: 90px; }
-@media (max-width: 700px) { .catalog { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .catalog { grid-template-columns: minmax(0, 1fr); } }
