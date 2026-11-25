@@ -2,6 +2,7 @@
 // Data comes from Supabase, falling back to the bundled fallback-data.json.
 // URL params: ?level=<id> skips the menu; ?preview=1 includes unpublished levels.
 import { createDataSource } from '../../shared/data.js';
+import { preloadImages } from '../sprites.js';
 import { PALETTE, FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../theme.js';
 
 export const LOAD_ERROR = "The party is cancelled: couldn't load levels. Try reloading.";
@@ -49,8 +50,9 @@ export class BootScene extends Phaser.Scene {
     loadSupabaseClient()
       .then((client) => createDataSource({ client, fetchFallback })
         .loadGameData({ includeUnpublished: preview }))
-      .then((data) => {
+      .then(async (data) => {
         console.info(`Game data loaded from ${data.source}.`);
+        await preloadImages(this, data);
         this.registry.set('data', data);
         this.registry.set('preview', preview);
         if (levelId && data.levels.some((l) => l.id === levelId)) {
