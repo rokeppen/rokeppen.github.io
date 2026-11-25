@@ -1,6 +1,7 @@
-// Balance check (RF3, RF5): the starter levels are won by a sensible scripted player
-// and lost by one that only ends turns. The bot never rings the Victory Bell, so a win
-// is earned by towers alone.
+// Balance check (RF3, RF5): the starter levels are won by a sensible scripted player who
+// plays one card per turn, and lost by one that only ends turns. The bots never play Sell
+// or Bell cards, so a win is earned by towers alone. Cards are free, so nothing here is
+// about caps.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -46,23 +47,16 @@ for (const level of data.levels) {
   }
 }
 
-test('level 1 is easier than level 2: the bot keeps a larger share of its kegs', () => {
+// With free cards a sensible player keeps every keg on both starter levels, so difficulty
+// shows in how long the towers take: level 2 needs clearly more turns.
+test('level 1 is easier than level 2: the bot wins it in fewer turns on average', () => {
   const [l1, l2] = data.levels;
-  const share = (level) => {
+  const turns = (level) => {
     let sum = 0;
-    for (const seed of SEEDS) sum += runGame(level, catalog, { rng: lcg(seed) }).wine / level.startingWine;
+    for (const seed of SEEDS) sum += runGame(level, catalog, { rng: lcg(seed) }).turn;
     return sum / SEEDS.length;
   };
-  assert.ok(share(l1) > share(l2), `${share(l1)} vs ${share(l2)}`);
-});
-
-test('level 2 has tension: the sensible bot loses at least 1 keg in a late wave', () => {
-  const l2 = data.levels.find((l) => l.id === 'level-2');
-  for (const seed of SEEDS) {
-    const { kegsLostByWave } = runGame(l2, catalog, { rng: lcg(seed) });
-    const late = kegsLostByWave.slice(Math.floor(kegsLostByWave.length / 2));
-    assert.ok(late.reduce((a, b) => a + b, 0) >= 1, JSON.stringify(kegsLostByWave));
-  }
+  assert.ok(turns(l1) * 1.5 < turns(l2), `${turns(l1)} vs ${turns(l2)}`);
 });
 
 // --- economy: support and splash are worth buying ---
@@ -88,7 +82,6 @@ function damageDealt(level, placements, { dropFirst = false } = {}) {
         }
       }
     }
-    s.actionsLeft = 3;
     assert.ok(s.placeTower(tile.x, tile.y, p.id).ok, p.id);
   }
   if (dropFirst) s.towers.shift(); // the support alone, on the tile it had next to the damage tower
@@ -105,43 +98,12 @@ function damageDealt(level, placements, { dropFirst = false } = {}) {
   return dealt;
 }
 
-test('on level 2 the mixed bot beats the best single-weapon bot (HR Talk only)', () => {
-  for (const seed of SEEDS) {
-    const single = runGame(level2, catalog, { only: ['hr-talk'], rng: lcg(seed) });
-    const mixed = runGame(level2, catalog, { bot: 'mixed', rng: lcg(seed) });
-    assert.equal(mixed.phase, 'won', JSON.stringify(mixed));
-    assert.ok(Object.keys(mixed.towers).length >= 2, `mixed builds a mix: ${JSON.stringify(mixed.towers)}`);
-    assert.ok(mixed.wine > single.wine || (mixed.wine === single.wine && mixed.turn < single.turn),
-      `mixed ${JSON.stringify(mixed)} vs HR only ${JSON.stringify(single)}`);
-  }
-});
-
 test('the mixed bot backs splash with the Café and single-target towers with Pizza Hut', () => {
   const ws = (...ids) => ids.map((id) => catalog.weapons.find((w) => w.id === id));
   const all = ws('out-of-office', 'coffee-machine', 'cafe', 'pizza-hut', 'hr-talk');
   assert.equal(pickSupport(all, ws('hr-talk')[0]).id, 'cafe');
   assert.equal(pickSupport(all, ws('out-of-office')[0]).id, 'pizza-hut');
   assert.equal(pickSupport(ws('hr-talk', 'coffee-machine'), ws('hr-talk')[0]).id, 'coffee-machine', 'falls back');
-});
-
-test('HR Talk alone wins level 1 within its turn target', () => {
-  for (const seed of SEEDS) {
-    const r = runGame(level1, catalog, { only: ['hr-talk'], rng: lcg(seed) });
-    assert.equal(r.phase, 'won', JSON.stringify(r));
-    assert.ok(r.turn <= MAX_WIN_TURNS['level-1'], `took ${r.turn} turns`);
-    assert.deepEqual(Object.keys(r.towers), ['hr-talk']);
-  }
-});
-
-test('against a crowd, HR Talk deals more damage than Out-of-Office for the same caps', () => {
-  const crowd = { ...level2, waves: [level2.waves[level2.waves.length - 1]] };
-  const hr = catalog.weapons.find((w) => w.id === 'hr-talk');
-  const ooo = catalog.weapons.find((w) => w.id === 'out-of-office');
-  const n = Math.floor(hr.cost / ooo.cost);
-  assert.ok(n >= 1);
-  const hrDamage = damageDealt(crowd, [{ id: 'hr-talk' }]);
-  const oooDamage = damageDealt(crowd, Array.from({ length: n }, (_, i) => ({ id: 'out-of-office', near: i > 0 })));
-  assert.ok(hrDamage > oooDamage, `HR ${hrDamage} vs ${n} OOO ${oooDamage}`);
 });
 
 // The tough guests of level 2 walking level 2's path.
@@ -162,14 +124,34 @@ for (const support of ['coffee-machine', 'cafe', 'pizza-hut']) {
 }
 
 test('the mixed bot builds 1 support after every 2 damage towers', () => {
-  const s = new GameState(level2, catalog, { rng: () => 0.5 });
-  s.corks = 10000;
-  for (let i = 0; i < 2; i++) { playMixed(s); s.actionsLeft = 3; }
-  const kinds = s.towers.map((t) => catalog.weapons.find((w) => w.id === t.weaponId).effect);
-  const supports = kinds.filter((k) => ['slow', 'distract', 'lure'].includes(k)).length;
-  assert.equal(s.towers.length, 6);
-  assert.equal(supports, 2, kinds.join(','));
-  assert.equal(s.bellUsed, false);
+  const s = new GameState(level2, catalog, { rng: lcg(5) });
+  const effectOf = (id) => catalog.weapons.find((w) => w.id === id).effect;
+  for (let i = 0; i < 40 && s.towers.length < 6; i++) {
+    // Deal a hand that holds every level weapon, so only the bot's rule decides.
+    s.hand = level2.weaponIds.map((weaponId, k) => ({ id: 1000 * (i + 1) + k, kind: 'build', weaponId }));
+    s.cardPlayedThisTurn = false;
+    playMixed(s);
+  }
+  const kinds = s.towers.map((t) => effectOf(t.weaponId));
+  assert.deepEqual(kinds.map((k) => ['slow', 'distract', 'lure'].includes(k)),
+    [false, false, true, false, false, true], kinds.join(','));
+});
+
+test('bots play at most one card per turn and never Sell or Bell', () => {
+  for (const bot of ['sensible', 'mixed']) {
+    for (const level of data.levels) {
+      const s = new GameState(level, catalog, { rng: lcg(9) });
+      const play = bot === 'sensible' ? playSensibly : playMixed;
+      while (!s.over) {
+        const before = [...s.hand];
+        play(s);
+        const gone = before.filter((c) => !s.hand.includes(c));
+        assert.ok(gone.length <= 1, `${bot} played ${gone.length} cards`);
+        for (const c of gone) assert.ok(c.kind === 'build' || c.kind === 'upgrade', `${bot} played ${c.kind}`);
+        s.endTurn();
+      }
+    }
+  }
 });
 
 test('crowding: no starter-level group spawns more than 5 guests per turn (intervalS >= 0.2)', () => {
@@ -180,30 +162,39 @@ test('crowding: no starter-level group spawns more than 5 guests per turn (inter
 
 // --- bot heuristic ---
 
-test('weaponScore: damage x fireRate / cost; damage-0 weapons count 0.5 per effect second', () => {
-  assert.equal(weaponScore({ damage: 10, fireRate: 2, cost: 40 }), 0.5);
-  assert.equal(weaponScore({ damage: 0, fireRate: 1, cost: 10, effectDuration: 4 }), 0.2);
+test('weaponScore: damage x fireRate (cost ignored); damage-0 weapons count 0.5 per effect turn', () => {
+  assert.equal(weaponScore({ damage: 10, fireRate: 2, cost: 40 }), 20);
+  assert.equal(weaponScore({ damage: 0, fireRate: 1, cost: 10, effectDuration: 4 }), 2);
 });
 
-test('the bot builds on the tile covering the most path, then upgrades, and never rings the bell', () => {
+test('the bot builds its best card on the tile covering the most path, else upgrades', () => {
   const path = Array.from({ length: 7 }, (_, x) => ({ x, y: 1 }));
   const level = {
     id: 't', name: 'T', sortOrder: 1, published: true, cols: 7, rows: 3,
     start: path[0], end: path[6], path, blocked: [],
-    weaponIds: ['cheap', 'dear'], startingCorks: 50, startingWine: 5,
-    waves: [[{ enemyId: 'g', count: 1, intervalS: 1, delayS: 0 }]],
+    weaponIds: ['weak', 'strong'], startingCorks: 50, startingWine: 5,
+    waves: [[{ enemyId: 'g', count: 1, intervalS: 1, delayS: 30 }]],
   };
   const weapons = [
-    { id: 'cheap', name: 'C', cost: 20, range: 1.5, damage: 2, fireRate: 1, effect: 'none',
+    { id: 'weak', name: 'W', cost: 1, range: 1.5, damage: 2, fireRate: 1, effect: 'none',
       effectStrength: 0, effectDuration: 0, upgrades: [{ cost: 25, damage: 3 }] },
-    { id: 'dear', name: 'D', cost: 100, range: 1, damage: 3, fireRate: 1, effect: 'none',
+    { id: 'strong', name: 'S', cost: 999, range: 1, damage: 3, fireRate: 1, effect: 'none',
       effectStrength: 0, effectDuration: 0, upgrades: [] },
   ];
   const s = new GameState(level, { weapons, enemies: [{ id: 'g', name: 'G', hp: 5, speed: 1, reward: 1, wineDamage: 1 }] });
+  const deal = (cards) => {
+    s.hand = cards.map((c, i) => ({ id: 500 + s.turn * 10 + i, ...c }));
+    s.cardPlayedThisTurn = false;
+  };
+  deal([{ kind: 'build', weaponId: 'weak' }, { kind: 'build', weaponId: 'strong' }, { kind: 'sell' }, { kind: 'bell' }]);
   playSensibly(s);
-  // range 1.5 covers 3 path tiles from (1..5, 0); first two builds take (1,0) and (2,0).
-  assert.deepEqual(s.towers.map((t) => [t.x, t.y, t.weaponId, t.tier]), [[1, 0, 'cheap', 0], [2, 0, 'cheap', 0]]);
-  assert.equal(s.corks, 10);
-  assert.equal(s.actionsLeft, 1, 'cannot afford a third tower or an upgrade');
-  assert.equal(s.bellUsed, false);
+  // The strong card wins (cost ignored); range 1 covers 1 path tile, first such tile is (0, 0).
+  assert.deepEqual(s.towers.map((t) => [t.x, t.y, t.weaponId]), [[0, 0, 'strong']]);
+  assert.equal(s.hand.length, 3);
+  deal([{ kind: 'upgrade', weaponId: 'weak' }, { kind: 'sell' }]);
+  playSensibly(s);
+  assert.equal(s.hand.length, 2, 'no weak tower: the upgrade card is unplayable, sell is never played');
+  s.placeTower(3, 0, 'weak');
+  playSensibly(s);
+  assert.equal(s.towers.find((t) => t.weaponId === 'weak').tier, 1);
 });

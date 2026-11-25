@@ -1,18 +1,19 @@
 // Scripted players for balance tests. Pure: no Phaser, no DOM.
 //
-// The sensible bot spends its actions greedily each player turn:
-//   1. build the level weapon with the best damage × fireRate / cost on the free
+// Each bot plays at most one card from its hand per player turn (cards are free):
+// The sensible bot:
+//   1. plays the Build card whose weapon has the best damage × fireRate, on the free
 //      buildable tile that has the most path tiles within its range (ties: smallest y, then x);
-//   2. otherwise upgrade the tower that covers the most path tiles;
-//   3. otherwise do nothing.
+//   2. otherwise plays the Upgrade card whose matching tower covers the most path tiles;
+//   3. otherwise plays nothing.
 // The mixed bot builds damage towers like the sensible bot (but values splash for crowds)
 // and, after every 2 damage towers, 1 support tower (slow, distract or lure) next to the
-// best-covered damage tower that has the least support so far.
-// No bot sells or rings the Victory Bell, so a win proves the towers alone hold.
+// best-covered damage tower that has the least support so far, when it holds such a card.
+// No bot plays Sell or Bell cards, so a win proves the towers alone hold.
 import { GameState } from './state.js';
 import { weaponStats, upgradeCost } from './stats.js';
 
-// Damage-0 weapons (pure stall or slow) count 0.5 damage per effect second.
+// Damage-0 weapons (pure stall or slow) count 0.5 damage per effect turn.
 const EFFECT_DAMAGE_PER_SECOND = 0.5;
 // The mixed bot assumes a splash shot hits this many guests on average.
 const SPLASH_CROWD = 3;
@@ -26,21 +27,21 @@ export const isSupport = (w) => SUPPORT_EFFECTS.has(w.effect);
 
 export function weaponScore(weapon) {
   const damage = weapon.damage > 0 ? weapon.damage : EFFECT_DAMAGE_PER_SECOND * (weapon.effectDuration || 0);
-  return (damage * weapon.fireRate) / weapon.cost;
+  return damage * weapon.fireRate;
 }
 
-// Mixed bot: damage per cap, with splash counted against a crowd.
+// Mixed bot: damage per turn, with splash counted against a crowd.
 export function damageScore(weapon) {
   const crowd = weapon.effect === 'splash' ? SPLASH_CROWD : 1;
-  return (weapon.damage * weapon.fireRate * crowd) / weapon.cost;
+  return weapon.damage * weapon.fireRate * crowd;
 }
 
-// Mixed bot: stall/slow turns handed out per turn, per cap. A slow counts by its strength.
+// Mixed bot: stall/slow turns handed out per turn. A slow counts by its strength.
 export function supportScore(weapon) {
   const turns = Math.ceil(weapon.effectDuration || 0);
   const weight = weapon.effect === 'slow' ? weapon.effectStrength : 1;
   const crowd = weapon.effect === 'lure' ? LURE_CROWD : 1;
-  return (weapon.fireRate * turns * weight * crowd) / weapon.cost;
+  return weapon.fireRate * turns * weight * crowd;
 }
 
 // Path tiles whose centre lies within `range` of the tile (x, y)'s centre.
@@ -77,31 +78,49 @@ function bestTile(state, range) {
   return top;
 }
 
-function build(state, weapon, tile) {
-  if (!weapon || !tile || state.corks < weapon.cost) return false;
-  return state.placeTower(tile.x, tile.y, weapon.id).ok;
+// Playable Build cards in the hand, with their weapon (limited to `only`).
+function buildCards(state, only) {
+  return state.hand
+    .filter((c) => c.kind === 'build' && (!only || only.includes(c.weaponId)) && state.cardPlayable(c))
+    .map((card) => ({ card, weapon: state.weaponDefs.get(card.weaponId) }))
+    .filter((x) => x.weapon);
 }
 
+function bestBuildCard(cards, score) {
+  let top = null;
+  for (const c of cards) if (!top || score(c.weapon) > score(top.weapon)) top = c;
+  return top;
+}
+
+function build(state, choice, tile) {
+  if (!choice || !tile) return false;
+  return state.playCard(choice.card.id, { x: tile.x, y: tile.y }).ok;
+}
+
+// Plays the Upgrade card whose matching tower covers the most path.
 function tryUpgrade(state) {
   let top = null;
-  for (const t of state.towers) {
-    const weapon = state.weaponDefs.get(t.weaponId);
-    if (upgradeCost(weapon, t.tier) === null) continue;
-    const cover = pathCoverage(state, t.x, t.y, weaponStats(weapon, t.tier).range);
-    if (!top || cover > top.cover) top = { tower: t, cover, cost: upgradeCost(weapon, t.tier) };
+  for (const card of state.hand) {
+    if (card.kind !== 'upgrade' || !state.cardPlayable(card)) continue;
+    for (const t of state.towers) {
+      if (t.weaponId !== card.weaponId) continue;
+      const weapon = state.weaponDefs.get(t.weaponId);
+      if (upgradeCost(weapon, t.tier) === null) continue;
+      const cover = pathCoverage(state, t.x, t.y, weaponStats(weapon, t.tier).range);
+      if (!top || cover > top.cover) top = { card, tower: t, cover };
+    }
   }
-  if (!top || state.corks < top.cost) return false;
-  return state.upgradeTower(top.tower.id).ok;
+  return !!top && state.playCard(top.card.id, { towerId: top.tower.id }).ok;
 }
 
-// `only`: restrict the bot to these weapon ids (e.g. ['hr-talk']).
+// `only`: restrict the bot to Build cards of these weapon ids (e.g. ['hr-talk']).
 export function playSensibly(state, { only } = {}) {
-  while (state.actionsLeft > 0 && !state.over) {
-    const weapon = best(levelWeapons(state, only), weaponScore);
-    if (weapon && state.corks >= weapon.cost && build(state, weapon, bestTile(state, weapon.range))) continue;
-    if (tryUpgrade(state)) continue;
-    return;
-  }
+  if (state.over || state.cardPlayedThisTurn) return;
+  const choice = bestBuildCard(buildCards(state, only), weaponScore);
+  // A support card waits while an upgrade is on offer.
+  if (choice && isSupport(choice.weapon) && tryUpgrade(state)) return;
+  if (choice && build(state, choice, bestTile(state, choice.weapon.range))) return;
+  tryUpgrade(state);
 }
 
 // Path indices within `range` of the tile (x, y).
@@ -170,26 +189,23 @@ export function pickSupport(weapons, damage) {
 }
 
 export function playMixed(state, { only } = {}) {
-  while (state.actionsLeft > 0 && !state.over) {
-    const weapons = levelWeapons(state, only);
-    const damage = best(weapons.filter((w) => !isSupport(w) && w.damage > 0), damageScore);
-    const support = pickSupport(weapons, damage);
-    const count = (pred) => state.towers.filter((t) => pred(state.weaponDefs.get(t.weaponId))).length;
-    const supports = count(isSupport);
-    const damages = state.towers.length - supports;
-    const wantSupport = support && damages >= DAMAGE_PER_SUPPORT * (supports + 1);
-    if (wantSupport) {
-      const tile = supportTile(state, support);
-      if (tile) {
-        if (build(state, support, tile)) continue;
-        if (tryUpgrade(state)) continue;
-        return; // save up for the support tower
-      }
-    }
-    if (damage && build(state, damage, bestTile(state, damage.range))) continue;
-    if (tryUpgrade(state)) continue;
-    return;
-  }
+  if (state.over || state.cardPlayedThisTurn) return;
+  const cards = buildCards(state, only);
+  const damageCard = bestBuildCard(cards.filter((c) => !isSupport(c.weapon) && c.weapon.damage > 0), damageScore);
+  // The support the level's best damage weapon wants, among the support cards held.
+  const bestDamage = best(levelWeapons(state, only).filter((w) => !isSupport(w) && w.damage > 0), damageScore);
+  const held = cards.filter((c) => isSupport(c.weapon));
+  const supportWeapon = pickSupport(held.map((c) => c.weapon), bestDamage);
+  const supportCard = supportWeapon && held.find((c) => c.weapon === supportWeapon);
+  const count = (pred) => state.towers.filter((t) => pred(state.weaponDefs.get(t.weaponId))).length;
+  const supports = count(isSupport);
+  const damages = state.towers.length - supports;
+  const wantSupport = damages >= DAMAGE_PER_SUPPORT * (supports + 1);
+  if (wantSupport && supportCard && build(state, supportCard, supportTile(state, supportCard.weapon))) return;
+  if (damageCard && build(state, damageCard, bestTile(state, damageCard.weapon.range))) return;
+  if (tryUpgrade(state)) return;
+  // Nothing better to do: a support card is still worth placing.
+  if (supportCard) build(state, supportCard, supportTile(state, supportCard.weapon));
 }
 
 // Runs a whole level. bot: 'sensible', 'mixed' or 'idle' (only ends turns).
