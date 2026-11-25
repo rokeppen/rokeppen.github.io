@@ -8,6 +8,8 @@ One-time setup in the Supabase dashboard:
 1. Open the **SQL editor**. Existing project: run the migration, then `seed.sql`.
    Fresh project: `schema.sql`, then `seed.sql`. (Migrations live in
    `migrations/`; for this release that is `migrations/2026-11-25-beer-party.sql`.)
+   One-step option for an existing project: run `upgrade-beer-party.sql` once (the
+   migration followed by the seed; regenerate with `npm run upgrade-sql`).
    `seed.sql` is generated from `fallback-data.json` with `npm run seed`.
    Both `schema.sql` and the migration also create the public `sprites` Storage bucket
    (images up to 1 MB: PNG, JPEG, SVG, WebP) that only admins can upload to.
