@@ -1,7 +1,11 @@
 // Loads GameData into the registry, then starts the menu (or a level directly).
+// Data comes from Supabase, falling back to the bundled fallback-data.json.
 // URL params: ?level=<id> skips the menu; ?preview=1 includes unpublished levels.
-import { prepareGameData } from '../../shared/model.js';
+import { supabase } from '../../supabase.js';
+import { createDataSource } from '../../shared/data.js';
 import { PALETTE, FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../theme.js';
+
+export const LOAD_ERROR = "The party is cancelled: couldn't load levels. Try reloading.";
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -17,8 +21,17 @@ export class BootScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '32px', color: css(PALETTE.hudText),
     }).setOrigin(0.5);
 
-    this.loadData({ preview })
+    const source = createDataSource({
+      client: supabase,
+      fetchFallback: () => fetch('fallback-data.json').then((r) => {
+        if (!r.ok) throw new Error(`fallback-data.json: HTTP ${r.status}`);
+        return r.json();
+      }),
+    });
+
+    source.loadGameData({ includeUnpublished: preview })
       .then((data) => {
+        console.info(`Game data loaded from ${data.source}.`);
         this.registry.set('data', data);
         this.registry.set('preview', preview);
         if (levelId && data.levels.some((l) => l.id === levelId)) {
@@ -30,16 +43,8 @@ export class BootScene extends Phaser.Scene {
       })
       .catch((err) => {
         console.error(err);
-        message.setText('The wine cellar is locked.\nCould not load the game data.')
-          .setAlign('center').setColor(css(PALETTE.danger));
+        message.setText(LOAD_ERROR).setFontSize(24)
+          .setWordWrapWidth(MENU_WIDTH - 80).setAlign('center').setColor(css(PALETTE.danger));
       });
-  }
-
-  // Task 7 swaps this for the Supabase data layer (with fallback).
-  async loadData({ preview }) {
-    const res = await fetch('fallback-data.json');
-    if (!res.ok) throw new Error(`fallback-data.json: HTTP ${res.status}`);
-    const raw = await res.json();
-    return { ...prepareGameData(raw, { includeUnpublished: preview }), source: 'fallback' };
   }
 }
