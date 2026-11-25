@@ -1,4 +1,7 @@
 // Pure data-shape validation. No DOM, no CDN imports.
+// Internal names predate the beer theme: corks/startingCorks = bottle caps, wine/startingWine/wineDamage = kegs.
+
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 const inBounds = (p, cols, rows) =>
   Number.isInteger(p?.x) && Number.isInteger(p?.y) &&
@@ -24,6 +27,19 @@ export function isPathValid(path, start, end, cols, rows) {
     last.x === end?.x && last.y === end?.y;
 }
 
+// The level's guest list: `enemyIds` when it is an array, else (legacy level) the unique
+// enemy ids used in its waves, in order of first use.
+export function levelEnemyIds(level) {
+  if (Array.isArray(level?.enemyIds)) return level.enemyIds;
+  const ids = [];
+  for (const wave of Array.isArray(level?.waves) ? level.waves : []) {
+    for (const g of Array.isArray(wave) ? wave : []) {
+      if (g?.enemyId !== undefined && !ids.includes(g.enemyId)) ids.push(g.enemyId);
+    }
+  }
+  return ids;
+}
+
 export function validateLevel(level, catalog) {
   const errors = [];
   const name = level?.name ?? level?.id ?? 'level';
@@ -33,6 +49,19 @@ export function validateLevel(level, catalog) {
   if (!isPathValid(level?.path, level?.start, level?.end, level?.cols, level?.rows)) {
     return { level: null, errors: [`${name}: path is invalid`] };
   }
+
+  const explicitList = Array.isArray(level.enemyIds);
+  const guestList = [];
+  for (const id of levelEnemyIds(level)) {
+    // Legacy lists derived from waves keep unknown ids; the wave loop reports those.
+    if (explicitList && !enemyIds.has(id)) errors.push(`${name}: unknown guest "${id}" dropped`);
+    else guestList.push(id);
+  }
+  if (guestList.length === 0 && explicitList) {
+    errors.push(`${name}: no guests on the guest list`);
+    return { level: null, errors };
+  }
+  const guests = new Set(guestList);
 
   const keptWeapons = [];
   for (const id of level.weaponIds ?? []) {
@@ -46,8 +75,14 @@ export function validateLevel(level, catalog) {
     for (const g of wave ?? []) {
       if (!enemyIds.has(g?.enemyId)) {
         errors.push(`${name}: wave ${wi + 1} has unknown enemy "${g?.enemyId}", group dropped`);
-      } else if (!(g.count >= 1)) {
-        errors.push(`${name}: wave ${wi + 1} group "${g.enemyId}" has count < 1, group dropped`);
+      } else if (!guests.has(g.enemyId)) {
+        errors.push(`${name}: wave ${wi + 1} guest "${g.enemyId}" is not on the level's guest list, group dropped`);
+      } else if (!Number.isInteger(g.count) || g.count < 1) {
+        errors.push(`${name}: wave ${wi + 1} group "${g.enemyId}" count must be a whole number >= 1, group dropped`);
+      } else if (!isNum(g.intervalS) || g.intervalS <= 0) {
+        errors.push(`${name}: wave ${wi + 1} group "${g.enemyId}" interval must be > 0, group dropped`);
+      } else if (!isNum(g.delayS) || g.delayS < 0) {
+        errors.push(`${name}: wave ${wi + 1} group "${g.enemyId}" delay must be >= 0, group dropped`);
       } else {
         groups.push({ ...g });
       }
@@ -68,6 +103,14 @@ export function validateLevel(level, catalog) {
     }
   }
 
+  if (!isNum(level.startingWine) || level.startingWine < 1) {
+    errors.push(`${name}: starting kegs must be a number >= 1`);
+    return { level: null, errors };
+  }
+  if (!isNum(level.startingCorks) || level.startingCorks < 0) {
+    errors.push(`${name}: starting caps must be a number >= 0`);
+    return { level: null, errors };
+  }
   if (keptWeapons.length === 0) {
     errors.push(`${name}: no valid weapons left`);
     return { level: null, errors };
@@ -82,6 +125,7 @@ export function validateLevel(level, catalog) {
       ...level,
       path: level.path.map(p => ({ ...p })),
       weaponIds: keptWeapons,
+      enemyIds: guestList,
       waves,
       blocked,
     },

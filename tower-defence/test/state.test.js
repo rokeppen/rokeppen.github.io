@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameState } from '../game/logic/state.js';
+import { GameState, sellRefund } from '../game/logic/state.js';
 
 // 5x3 level: straight path along row 1, one wave of 2 guests.
 function makeLevel(overrides = {}) {
@@ -186,6 +186,18 @@ test('sellTower after one upgrade refunds half of total spent', () => {
   assert.equal(s.tileType(2, 0), 'buildable');
 });
 
+test('sellRefund is half of spent rounded down and matches sellTower', () => {
+  assert.equal(sellRefund({ spent: 0 }), 0);
+  assert.equal(sellRefund({ spent: 51 }), 25);
+  assert.equal(sellRefund({ spent: 170 }), 85);
+  const s = makeState();
+  s.placeTower(2, 0, 'cannon');
+  const tower = s.towers[0];
+  s.upgradeTower(tower.id);
+  const expected = sellRefund(tower);
+  assert.equal(s.sellTower(tower.id).refund, expected);
+});
+
 test('wave-cleared between waves, then next wave can start', () => {
   const wave = [{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }];
   const s = makeState({ waves: [wave, wave] });
@@ -250,4 +262,124 @@ test('kill and leak events carry the enemy instance id', () => {
   assert.deepEqual(leaks.map((e) => e.id).sort(), leakSpawns.sort());
   assert.equal(leaks[0].enemyId, 'guest');
   assert.equal(leaks[0].wineDamage, 3);
+});
+
+// Regression: re-stalling on every shot pinned a guest forever when fireRate x effectDuration >= 1.
+for (const effect of ['lure', 'distract']) {
+  test(`${effect} with fireRate x duration >= 1 cannot pin a guest forever`, () => {
+    const pin = { id: 'pin', name: 'Pin', cost: 1, range: 10, damage: 0, fireRate: 0.5,
+      effect, effectStrength: 0, effectDuration: 3, upgrades: [] };
+    const s = new GameState(makeLevel({ weaponIds: ['pin'],
+      waves: [[{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]] }),
+    { weapons: [...weapons, pin], enemies });
+    s.placeTower(2, 0, 'pin');
+    s.startNextWave();
+    run(s, 1);
+    assert.equal(s.enemies.length, 1);
+    assert.ok(s.enemies[0].stallUntil > s.time, 'first shot stalls');
+    const stalledAt = s.enemies[0].distance;
+    run(s, 5);
+    assert.ok(s.enemies.length === 0 || s.enemies[0].distance > stalledAt, 'guest moves again after the stall');
+    run(s, 60);
+    assert.equal(s.enemies.length, 0, 'guest eventually leaves');
+    assert.equal(s.wine, 10 - 3);
+    assert.equal(s.phase, 'won');
+  });
+}
+
+// --- immunity and quotes ---
+
+const distractW = { id: 'dis', name: 'Dis', cost: 10, range: 5, damage: 1, fireRate: 1,
+  effect: 'distract', effectStrength: 0, effectDuration: 3, upgrades: [] };
+const iceW = { id: 'ice2', name: 'Ice2', cost: 10, range: 5, damage: 1, fireRate: 1,
+  effect: 'slow', effectStrength: 0.5, effectDuration: 5, upgrades: [] };
+
+function stateWith(enemyDefs, weaponList, wave, opts) {
+  const level = makeLevel({ weaponIds: weaponList.map((w) => w.id), waves: [wave] });
+  return new GameState(level, { weapons: weaponList, enemies: enemyDefs }, opts);
+}
+
+test('immune-to-distract guest keeps moving, takes damage, stallImmuneUntil untouched', () => {
+  const defs = [{ ...enemies[0], hp: 100, immuneTo: ['distract'] }];
+  const s = stateWith(defs, [distractW], [{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]);
+  s.placeTower(2, 0, 'dis');
+  s.startNextWave();
+  s.tick(0.25);
+  const e = s.enemies[0];
+  assert.ok(e.hp < 100);
+  assert.equal(e.stallImmuneUntil, 0);
+  assert.equal(e.stallUntil, 0);
+  assert.ok(e.distance > 0.2);
+});
+
+test('immune-to-slow guest keeps slowFactor 1', () => {
+  const defs = [{ ...enemies[0], hp: 100, immuneTo: ['slow'] }];
+  const s = stateWith(defs, [iceW], [{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]);
+  s.placeTower(2, 0, 'ice2');
+  s.startNextWave();
+  s.tick(0.25);
+  assert.equal(s.enemies[0].slowFactor, 1);
+  assert.ok(s.enemies[0].hp < 100);
+});
+
+test('non-immune guest next to an immune one is still stalled by lure', () => {
+  const defs = [
+    { id: 'tough', name: 'T', hp: 100, speed: 1, reward: 1, wineDamage: 1, immuneTo: ['lure'] },
+    { id: 'soft', name: 'S', hp: 100, speed: 1, reward: 1, wineDamage: 1 },
+  ];
+  const s = stateWith(defs, [weapons[1]], [
+    { enemyId: 'tough', count: 1, intervalS: 1, delayS: 0 },
+    { enemyId: 'soft', count: 1, intervalS: 1, delayS: 0 },
+  ]);
+  s.placeTower(2, 0, 'pizza');
+  s.startNextWave();
+  s.tick(0.1);
+  const tough = s.enemies.find((e) => e.enemyId === 'tough');
+  const soft = s.enemies.find((e) => e.enemyId === 'soft');
+  assert.ok(tough.stallUntil === 0 && tough.stallImmuneUntil === 0);
+  assert.ok(soft.stallUntil > s.time);
+});
+
+const quoted = { id: 'q', name: 'Q', hp: 1000, speed: 0.01, reward: 1, wineDamage: 1, quotes: ['hi', 'yo'] };
+const quoteWave = (count) => [{ enemyId: 'q', count, intervalS: 0, delayS: 0 }];
+const quotesOf = (s) => s.drainEvents().filter((e) => e.type === 'quote');
+
+test('rng 0: quoted guest emits one quote at spawn with text from its list', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(1), { rng: () => 0 });
+  s.startNextWave();
+  s.tick(0.1);
+  const qs = quotesOf(s);
+  assert.equal(qs.length, 1);
+  assert.equal(qs[0].enemyId, 'q');
+  assert.equal(qs[0].id, s.enemies[0].id);
+  assert.ok(quoted.quotes.includes(qs[0].text));
+});
+
+test('rng 0.99: no quotes', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(3), { rng: () => 0.99 });
+  s.startNextWave();
+  run(s, 5);
+  assert.equal(quotesOf(s).length, 0);
+});
+
+test('global gap: 5 simultaneous quoted guests give 1 quote in first 1.5 s', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(5), { rng: () => 0 });
+  s.startNextWave();
+  for (let i = 0; i < 5; i++) s.tick(0.25); // 1.25 s
+  assert.equal(quotesOf(s).length, 1);
+});
+
+test('max two quotes per guest, spaced by the gap', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(1), { rng: () => 0 });
+  s.startNextWave();
+  for (let i = 0; i < 40; i++) s.tick(0.25); // 10 s
+  assert.equal(quotesOf(s).length, 2);
+});
+
+test('guest with quotes: [] never speaks', () => {
+  const mute = { ...quoted, quotes: [] };
+  const s = stateWith([mute], [weapons[0]], quoteWave(3), { rng: () => 0 });
+  s.startNextWave();
+  run(s, 5);
+  assert.equal(quotesOf(s).length, 0);
 });

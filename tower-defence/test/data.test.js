@@ -6,11 +6,12 @@ import { weaponToRow, enemyToRow, levelToRow } from '../shared/mapping.js';
 const weapon = {
   id: 'wine-tasting', name: 'Wine Tasting', description: 'Distracts', sprite: 'wine',
   cost: 50, range: 2.5, damage: 0, fireRate: 1,
-  effect: 'distract', effectStrength: 0.5, effectDuration: 3, upgrades: [],
+  effect: 'distract', effectStrength: 0.5, effectDuration: 3, upgrades: [], fallbackSprite: 'wine',
 };
 const enemy = {
   id: 'recruiter', name: 'Recruiter', description: 'Pesky', sprite: 'rec',
   hp: 30, speed: 1.2, reward: 10, wineDamage: 1,
+  quotes: ['Got a minute?'], immuneTo: [], fallbackSprite: 'rec',
 };
 function makeLevel(overrides = {}) {
   return {
@@ -19,6 +20,7 @@ function makeLevel(overrides = {}) {
     path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }],
     blocked: [], weaponIds: ['wine-tasting'], startingCorks: 100, startingWine: 5,
     waves: [[{ enemyId: 'recruiter', count: 2, intervalS: 1, delayS: 0 }]],
+    enemyIds: ['recruiter'], barSprite: '🍻',
     ...overrides,
   };
 }

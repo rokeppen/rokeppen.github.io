@@ -3,7 +3,7 @@
     {
       "id": "out-of-office",
       "name": "Out-of-Office Reply",
-      "description": "Fires back \"I am currently away\" with alarming accuracy.",
+      "description": "Fires back \"I am currently away\" at anyone between you and the beer bar.",
       "sprite": "📧",
       "cost": 50,
       "range": 2.5,
@@ -24,12 +24,13 @@
           "range": 3,
           "fireRate": 2.2
         }
-      ]
+      ],
+      "fallbackSprite": "📧"
     },
     {
       "id": "coffee-machine",
       "name": "Coffee Machine",
-      "description": "Guests slow down to wait for a cappuccino. Nobody knows which button does what.",
+      "description": "Guests slow down to queue for a cappuccino at a beer party. Nobody knows which button does what.",
       "sprite": "☕",
       "cost": 75,
       "range": 2.5,
@@ -50,38 +51,40 @@
           "damage": 5,
           "fireRate": 1.5
         }
-      ]
+      ],
+      "fallbackSprite": "☕"
     },
     {
-      "id": "wine-tasting",
-      "name": "Wine Tasting",
-      "description": "One guest gets a glass and an hour-long lecture on tannins.",
-      "sprite": "🍷",
+      "id": "cafe",
+      "name": "Café",
+      "description": "A little Belgian pub corner. One guest cannot resist a trappist and sits down for a good long while.",
+      "sprite": "🪑",
       "cost": 100,
       "range": 3,
       "damage": 3,
-      "fireRate": 0.5,
+      "fireRate": 0.45,
       "effect": "distract",
       "effectStrength": 0,
-      "effectDuration": 3,
+      "effectDuration": 1.5,
       "upgrades": [
         {
           "cost": 60,
           "effectStrength": 0,
           "range": 3.5,
-          "fireRate": 0.7
+          "fireRate": 0.55
         },
         {
           "cost": 110,
           "damage": 8,
-          "fireRate": 0.9
+          "fireRate": 0.65
         }
-      ]
+      ],
+      "fallbackSprite": "🪑"
     },
     {
       "id": "pizza-hut",
       "name": "Pizza Hut Delivery",
-      "description": "Free pizza lures the whole crowd off schedule. Nobody leaves the path, nobody leaves the pizza.",
+      "description": "Free pizza lures the whole crowd off course. Nobody heads for the beer bar while there is a slice left.",
       "sprite": "🍕",
       "cost": 120,
       "range": 2.5,
@@ -101,12 +104,13 @@
           "range": 3.5,
           "fireRate": 0.4
         }
-      ]
+      ],
+      "fallbackSprite": "🍕"
     },
     {
       "id": "hr-talk",
       "name": "HR Talk",
-      "description": "A mandatory presentation on workplace conduct. Splash damage to morale.",
+      "description": "A mandatory presentation on responsible kegstand conduct. Splash damage to morale.",
       "sprite": "🗣️",
       "cost": 150,
       "range": 3,
@@ -128,49 +132,93 @@
           "fireRate": 0.8,
           "effectStrength": 1.8
         }
-      ]
+      ],
+      "fallbackSprite": "🗣️"
     }
   ],
   "enemies": [
     {
       "id": "recruiter",
       "name": "Recruiter",
-      "description": "Has seen your profile and has \"an exciting opportunity\" for you.",
+      "description": "Has seen your profile and has \"an exciting opportunity\" for you. Mostly interested in the beer bar.",
       "sprite": "🧑‍💼",
       "hp": 30,
       "speed": 0.9,
       "reward": 10,
-      "wineDamage": 1
+      "wineDamage": 1,
+      "quotes": [
+        "I have an exciting opportunity. Also, is that a free beer?",
+        "Great network here. Mind if I connect?"
+      ],
+      "immuneTo": [],
+      "fallbackSprite": "🧑‍💼"
     },
     {
       "id": "sales-rep",
       "name": "Sales Rep",
-      "description": "Just wants five minutes of your time. And your wine.",
+      "description": "Just wants five minutes of your time. And your beer.",
       "sprite": "💼",
       "hp": 60,
       "speed": 0.7,
       "reward": 15,
-      "wineDamage": 1
+      "wineDamage": 1,
+      "quotes": [
+        "Just five minutes of your time. And one of your beers.",
+        "Have you considered a keg subscription?"
+      ],
+      "immuneTo": [],
+      "fallbackSprite": "💼"
     },
     {
       "id": "quick-question",
       "name": "Quick Question",
-      "description": "It will only take a second. It never does.",
+      "description": "It will only take a second. It never does. Mostly asks where the beer is.",
       "sprite": "❓",
       "hp": 15,
       "speed": 1.8,
       "reward": 8,
-      "wineDamage": 1
+      "wineDamage": 1,
+      "quotes": [
+        "Quick question, where is the beer?",
+        "It will only take a second!"
+      ],
+      "immuneTo": [],
+      "fallbackSprite": "❓"
     },
     {
       "id": "facilities-guy",
       "name": "Facilities Guy",
-      "description": "Has a toolbox, a ladder and a legitimate reason to be near the wine table.",
+      "description": "Has a toolbox, a ladder and a legitimate reason to be near the beer bar. Tanky.",
       "sprite": "🧰",
       "hp": 400,
       "speed": 0.45,
       "reward": 60,
-      "wineDamage": 5
+      "wineDamage": 5,
+      "quotes": [
+        "Just checking the taps. Totally official.",
+        "Nobody touch the keg, I have a ladder."
+      ],
+      "immuneTo": [],
+      "fallbackSprite": "🧰"
+    },
+    {
+      "id": "wine-snob",
+      "name": "Wine Snob",
+      "description": "Came for the Pinot and found a beer party. Cannot be distracted by anything you pour.",
+      "sprite": "🍷",
+      "hp": 120,
+      "speed": 0.6,
+      "reward": 25,
+      "wineDamage": 2,
+      "quotes": [
+        "This beer party isn't fun.",
+        "Is there no Pinot?",
+        "I will have what the sommelier recommends."
+      ],
+      "immuneTo": [
+        "distract"
+      ],
+      "fallbackSprite": "🍷"
     }
   ],
   "levels": [
@@ -471,7 +519,13 @@
             "delayS": 8
           }
         ]
-      ]
+      ],
+      "enemyIds": [
+        "recruiter",
+        "quick-question",
+        "sales-rep"
+      ],
+      "barSprite": "🍻"
     },
     {
       "id": "level-2",
@@ -755,7 +809,7 @@
       "weaponIds": [
         "out-of-office",
         "coffee-machine",
-        "wine-tasting",
+        "cafe",
         "pizza-hut",
         "hr-talk"
       ],
@@ -862,6 +916,12 @@
             "count": 10,
             "intervalS": 0.9,
             "delayS": 8
+          },
+          {
+            "enemyId": "wine-snob",
+            "count": 3,
+            "intervalS": 3,
+            "delayS": 2
           }
         ],
         [
@@ -882,6 +942,12 @@
             "count": 14,
             "intervalS": 0.5,
             "delayS": 8
+          },
+          {
+            "enemyId": "wine-snob",
+            "count": 4,
+            "intervalS": 2.5,
+            "delayS": 4
           }
         ],
         [
@@ -908,9 +974,23 @@
             "count": 16,
             "intervalS": 0.5,
             "delayS": 10
+          },
+          {
+            "enemyId": "wine-snob",
+            "count": 6,
+            "intervalS": 2,
+            "delayS": 3
           }
         ]
-      ]
+      ],
+      "enemyIds": [
+        "recruiter",
+        "sales-rep",
+        "quick-question",
+        "facilities-guy",
+        "wine-snob"
+      ],
+      "barSprite": "🍻"
     }
   ]
 }

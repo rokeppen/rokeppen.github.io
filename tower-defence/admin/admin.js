@@ -1,22 +1,31 @@
-import { supabase } from '../supabase.js';
 import { createDataSource } from '../shared/data.js';
 import { mountLevels } from './level-editor.js';
 import { mountWeapons, mountEnemies } from './catalog-editor.js';
 
-const dataSource = createDataSource({
-  client: supabase,
-  fetchFallback: () => fetch('../fallback-data.json').then((r) => r.json()),
-});
+// supabase.js pulls the client from a CDN. Imported dynamically (see boot()) so a blocked,
+// broken or hanging CDN shows a clear message instead of leaving the page on "Loading...".
+const IMPORT_TIMEOUT_MS = 10000;
+const CDN_ERROR = "Couldn't load the Supabase library — check your connection and reload.";
+let supabase = null;
+let dataSource = null;
 
 // Shared with the editors (Tasks 9-11). `data` is GameData incl. unpublished levels;
 // `data.levels` are the DB's own rows: unpublished and possibly invalid ones are included so they
-// can be repaired. `readOnly` is true only when the DB was unreachable (bundled fallback shown):
-// editors must not save then.
-export const state = { data: null, dataSource, readOnly: false };
+// can be repaired. `readOnly` is true only when the DB was unreachable on the first load (bundled
+// fallback shown): editors must not save then. `dataSource` and `client` (the supabase client, for
+// Storage uploads) are set by boot() before any render.
+export const state = { data: null, dataSource: null, client: null, readOnly: false };
 
 export async function refresh() {
-  state.data = await dataSource.loadGameData({ includeUnpublished: true, includeInvalid: true });
-  state.readOnly = state.data.source === 'fallback';
+  const data = await dataSource.loadGameData({ includeUnpublished: true, includeInvalid: true });
+  if (data.source === 'fallback' && state.data && !state.readOnly) {
+    // A reload after a save hit the fallback: keep the DB data we have (still editable, and what
+    // the editors patch locally) and let the caller report the failed reload, instead of silently
+    // swapping to bundled data.
+    throw new Error('the database did not answer; showing the last loaded data, reload the page to see the latest');
+  }
+  state.data = data;
+  state.readOnly = data.source === 'fallback';
 }
 
 const app = document.getElementById('app');
@@ -135,4 +144,31 @@ async function render() {
   }
 }
 
-render();
+async function boot() {
+  let timer;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${IMPORT_TIMEOUT_MS} ms`)), IMPORT_TIMEOUT_MS);
+    });
+    ({ supabase } = await Promise.race([import('../supabase.js'), timeout]));
+  } catch (e) {
+    console.error('Supabase library failed to load:', e);
+    app.replaceChildren(
+      h('h1', {}, 'Friday Afternoon Drinks - Admin'),
+      h('p', { className: 'error', role: 'alert' }, CDN_ERROR),
+      h('div', { className: 'actions' },
+        h('button', { textContent: 'Reload', onclick: () => window.location.reload() })));
+    return;
+  } finally {
+    clearTimeout(timer);
+  }
+  dataSource = createDataSource({
+    client: supabase,
+    fetchFallback: () => fetch('../fallback-data.json').then((r) => r.json()),
+  });
+  state.dataSource = dataSource;
+  state.client = supabase;
+  render();
+}
+
+boot();

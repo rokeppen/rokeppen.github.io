@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Friday Afternoon Drinks</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍷</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍻</text></svg>">
     <style>
         html, body {
             margin: 0;
             height: 100%;
             overflow: hidden;
-            background: #2b1d16;
+            background: linear-gradient(180deg, #e6f3ff, #cfe6f7);
         }
 
         #game {
@@ -19,6 +19,8 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <!-- Same-origin copy of phaser@3.90.0 if the CDN is blocked or down. -->
+    <script>window.Phaser || document.write('<script src="vendor/phaser.min.js"><\/script>')</script>
     <script type="module" src="game/main.js"></script>
 </head>
 <body>

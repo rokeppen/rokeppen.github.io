@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import {
   newLevel, setStart, setEnd, extendPath, toggleBlocked, resizeLevel, canSave,
   eraseTile, duplicateLevel, applyTool,
+  setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup,
+  waveSummary, prepareForEditor,
+  setGuests, guestsInUse, guestWaves, applyGenerated, GENERATED_NAME_PREFIX,
 } from '../admin/editor-state.js';
+import { generateLevel } from '../shared/generator.js';
+import { readFileSync } from 'node:fs';
 
 const catalog = { weapons: [{ id: 'w' }], enemies: [{ id: 'e' }] };
 
@@ -16,6 +21,7 @@ function drawn(overrides = {}) {
     end: { x: 3, y: 0 },
     path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }],
     weaponIds: ['w'],
+    enemyIds: ['e'],
     waves: [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]],
     ...overrides,
   };
@@ -205,4 +211,330 @@ test('applyTool dispatches to the matching edit', () => {
   assert.deepEqual(applyTool(l, 'path', { x: 0, y: 0 }).path, [{ x: 0, y: 0 }]);
   assert.deepEqual(applyTool(l, 'blocked', { x: 5, y: 5 }).blocked, [{ x: 5, y: 5 }]);
   assert.equal(applyTool(l, 'nonsense', { x: 5, y: 5 }), l);
+});
+
+// ---------- Task 10: weapons, waves, settings ----------
+
+const enemies = [
+  { id: 'e', sprite: '🧑‍💼' },
+  { id: 'q', sprite: '❓' },
+];
+const cat2 = { weapons: [{ id: 'w' }, { id: 'w2' }], enemies };
+
+test('setWeapons replaces the weapon list (deduped) without mutating input', () => {
+  const l = drawn();
+  const next = setWeapons(l, ['w2', 'w', 'w2']);
+  assert.deepEqual(next.weaponIds, ['w2', 'w']);
+  assert.deepEqual(l.weaponIds, ['w']);
+});
+
+test('addWave on an empty level creates one wave with one default group', () => {
+  const l = drawn({ waves: [] });
+  const next = addWave(l, 'e');
+  assert.deepEqual(next.waves, [[{ enemyId: 'e', count: 5, intervalS: 1, delayS: 0 }]]);
+  assert.deepEqual(l.waves, []);
+});
+
+test('addWave copies the previous wave deeply', () => {
+  const l = drawn({ waves: [[{ enemyId: 'q', count: 2, intervalS: 3, delayS: 1 }]] });
+  const next = addWave(l, 'e');
+  assert.equal(next.waves.length, 2);
+  assert.deepEqual(next.waves[1], l.waves[0]);
+  next.waves[1][0].count = 9;
+  assert.equal(next.waves[0][0].count, 2);
+});
+
+test('addWave without any enemy on an empty level leaves it unchanged', () => {
+  const l = drawn({ waves: [] });
+  assert.equal(addWave(l, undefined), l);
+});
+
+test('removeWave removes the wave at an index', () => {
+  const a = [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }];
+  const b = [{ enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }];
+  const l = drawn({ waves: [a, b] });
+  assert.deepEqual(removeWave(l, 0).waves, [b]);
+  assert.equal(removeWave(l, 5), l);
+  assert.equal(l.waves.length, 2);
+});
+
+test('moveWave swaps the order', () => {
+  const a = [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }];
+  const b = [{ enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }];
+  const l = drawn({ waves: [a, b] });
+  assert.deepEqual(moveWave(l, 0, 1).waves, [b, a]);
+  assert.deepEqual(moveWave(l, 1, -1).waves, [b, a]);
+  assert.equal(moveWave(l, 0, -1), l, 'cannot move the first wave up');
+  assert.equal(moveWave(l, 1, 1), l, 'cannot move the last wave down');
+  assert.deepEqual(l.waves, [a, b]);
+});
+
+test('addGroup / updateGroup / removeGroup edit one wave', () => {
+  const l = drawn();
+  const added = addGroup(l, 0, 'q');
+  assert.deepEqual(added.waves[0][1], { enemyId: 'q', count: 5, intervalS: 1, delayS: 0 });
+  const updated = updateGroup(added, 0, 1, { count: 3, delayS: 2 });
+  assert.deepEqual(updated.waves[0][1], { enemyId: 'q', count: 3, intervalS: 1, delayS: 2 });
+  assert.equal(added.waves[0][1].count, 5, 'input not mutated');
+  const removed = removeGroup(updated, 0, 0);
+  assert.deepEqual(removed.waves[0], [updated.waves[0][1]]);
+  assert.equal(updated.waves[0].length, 2);
+  assert.equal(updateGroup(l, 4, 0, { count: 2 }), l, 'unknown wave');
+  assert.equal(removeGroup(l, 0, 7), l, 'unknown group');
+});
+
+test('updateGroup with count 0 makes canSave fail', () => {
+  const l = updateGroup(drawn(), 0, 0, { count: 0 });
+  const res = canSave(l, catalog);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /count/i.test(e)), res.errors.join('; '));
+});
+
+test('canSave rejects bad interval, delay, starting corks/wine and empty waves', () => {
+  const g = (p) => drawn({ waves: [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0, ...p }]] });
+  assert.equal(canSave(g({ intervalS: 0 }), catalog).ok, false);
+  assert.equal(canSave(g({ delayS: -1 }), catalog).ok, false);
+  assert.equal(canSave(g({ count: 1.5 }), catalog).ok, false);
+  assert.equal(canSave(drawn({ startingCorks: 0 }), catalog).ok, false);
+  assert.equal(canSave(drawn({ startingWine: 2.5 }), catalog).ok, false);
+  assert.equal(canSave(drawn({ waves: [[]] }), catalog).ok, false);
+});
+
+test('canSave surfaces validateLevel errors instead of swallowing them (RF2)', () => {
+  // The weapon was deleted from the catalog while the level still uses it.
+  const res = canSave(drawn({ weaponIds: ['w', 'gone'] }), catalog);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => e.includes('gone')), res.errors.join('; '));
+  const enemyGone = canSave(drawn({ waves: [[{ enemyId: 'zzz', count: 1, intervalS: 1, delayS: 0 }]] }), catalog);
+  assert.equal(enemyGone.ok, false);
+  assert.ok(enemyGone.errors.some((e) => e.includes('zzz')), enemyGone.errors.join('; '));
+});
+
+test('waveSummary totals guests per enemy using their sprites', () => {
+  const wave = [
+    { enemyId: 'e', count: 4, intervalS: 1, delayS: 0 },
+    { enemyId: 'q', count: 2, intervalS: 1, delayS: 0 },
+    { enemyId: 'e', count: 2, intervalS: 1, delayS: 0 },
+  ];
+  assert.equal(waveSummary(wave, enemies), '6 🧑‍💼 + 2 ❓');
+  assert.equal(waveSummary([], enemies), 'no guests');
+  assert.equal(waveSummary([{ enemyId: 'zzz', count: 1 }], enemies), '1 ?');
+});
+
+test('prepareForEditor drops groups of deleted enemies with a warning (RF2)', () => {
+  const raw = drawn({
+    waves: [
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'xyz', count: 3, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  const { level, warnings } = prepareForEditor(raw, cat2);
+  assert.deepEqual(level.waves[1], [{ enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }]);
+  assert.ok(warnings.some((w) => /Wave 2/.test(w) && w.includes("'xyz'") && /no longer exists/.test(w)), warnings.join('; '));
+  assert.equal(raw.waves[1].length, 2, 'input not mutated');
+});
+
+test('prepareForEditor drops deleted weapons and waves left empty, with warnings', () => {
+  const raw = drawn({ weaponIds: ['w', 'old'], waves: [[{ enemyId: 'xyz', count: 1, intervalS: 1, delayS: 0 }], [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]] });
+  const { level, warnings } = prepareForEditor(raw, cat2);
+  assert.deepEqual(level.weaponIds, ['w']);
+  assert.equal(level.waves.length, 1);
+  assert.ok(warnings.some((w) => w.includes("'old'")));
+  assert.ok(warnings.some((w) => /Wave 1/.test(w) && /removed/.test(w)));
+});
+
+test('prepareForEditor sanitises malformed path/blocked/waves/weaponIds without throwing', () => {
+  const raw = {
+    id: 'x', name: null, sortOrder: null, published: null, cols: 16, rows: 10,
+    start: { x: '1', y: 0 }, end: 'nope',
+    path: [null, 5, { x: 0, y: 0 }, { x: 1.5, y: 0 }, { x: 1, y: 0 }],
+    blocked: { x: 1, y: 1 },
+    weaponIds: 'w',
+    startingCorks: '50', startingWine: null,
+    waves: [null, 'x', [null, { enemyId: 'e', count: '2', intervalS: 1, delayS: 0 }]],
+  };
+  const { level, warnings } = prepareForEditor(raw, cat2);
+  assert.deepEqual(level.path, [{ x: 0, y: 0 }, { x: 1, y: 0 }]);
+  assert.deepEqual(level.blocked, []);
+  assert.equal(level.start, null);
+  assert.equal(level.end, null);
+  assert.deepEqual(level.weaponIds, []);
+  assert.equal(level.name, '');
+  assert.equal(level.sortOrder, 0);
+  assert.equal(level.published, false);
+  assert.equal(level.startingCorks, 50);
+  assert.equal(level.startingWine, 20);
+  assert.deepEqual(level.waves, [[{ enemyId: 'e', count: 2, intervalS: 1, delayS: 0 }]]);
+  assert.ok(warnings.length > 0);
+  // The editor's map operations work on the result.
+  assert.doesNotThrow(() => toggleBlocked(level, { x: 5, y: 5 }));
+  assert.doesNotThrow(() => extendPath(level, { x: 2, y: 0 }));
+});
+
+test('prepareForEditor leaves a valid level identical (same JSON) with no warnings', () => {
+  const data = JSON.parse(readFileSync(new URL('../fallback-data.json', import.meta.url), 'utf8'));
+  for (const raw of data.levels) {
+    const { level, warnings } = prepareForEditor(raw, data);
+    assert.deepEqual(warnings, [], raw.id);
+    assert.equal(JSON.stringify(level), JSON.stringify(raw), raw.id);
+    assert.equal(canSave(level, data).ok, true, raw.id);
+  }
+});
+
+test('extendPath refuses to extend past the end tile', () => {
+  const l = drawn(); // path ends on E (3,0)
+  assert.equal(extendPath(l, { x: 4, y: 0 }), l);
+  assert.equal(extendPath(l, { x: 3, y: 1 }), l);
+});
+
+test('duplicateLevel of a nameless level is "Untitled (copy)"', () => {
+  assert.equal(duplicateLevel(drawn({ name: null })).name, 'Untitled (copy)');
+  assert.equal(duplicateLevel(drawn({ name: '  ' })).name, 'Untitled (copy)');
+});
+
+// ---------- guest list, generator, bar image (Task 7) ----------
+
+test('newLevel has an empty guest list and the default bar sprite', () => {
+  const l = newLevel();
+  assert.deepEqual(l.enemyIds, []);
+  assert.equal(l.barSprite, '🍻');
+});
+
+test('setGuests sets the (deduped) guest list without mutating its input', () => {
+  const l = drawn({ enemyIds: null });
+  const ids = ['e', 'q', 'e'];
+  const next = setGuests(l, ids);
+  assert.deepEqual(next.enemyIds, ['e', 'q']);
+  assert.equal(l.enemyIds, null, 'input level not mutated');
+  assert.deepEqual(ids, ['e', 'q', 'e'], 'input ids not mutated');
+  assert.notEqual(next.enemyIds, ids);
+});
+
+test('setGuests drops the wave groups of guests taken off the list (and waves left empty)', () => {
+  const l = drawn({
+    enemyIds: ['e', 'q'],
+    waves: [
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'q', count: 3, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  const next = setGuests(l, ['e']);
+  assert.deepEqual(next.waves, [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]]);
+  assert.equal(l.waves.length, 2, 'input not mutated');
+  assert.equal(l.waves[0].length, 2, 'input not mutated');
+  // Adding a guest leaves the waves alone (same array).
+  assert.equal(setGuests(l, ['e', 'q', 'x']).waves, l.waves);
+});
+
+test('guestsInUse lists the guests the waves use, in order of first use', () => {
+  const l = drawn({
+    waves: [
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }, null],
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  assert.deepEqual(guestsInUse(l), ['q', 'e']);
+  assert.deepEqual(guestsInUse(drawn({ waves: [] })), []);
+  assert.deepEqual(guestsInUse({ waves: 'junk' }), []);
+});
+
+test('guestWaves lists the (1-based) waves that use a guest', () => {
+  const l = drawn({
+    waves: [
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  assert.deepEqual(guestWaves(l, 'q'), [1, 3]);
+  assert.deepEqual(guestWaves(l, 'zzz'), []);
+});
+
+const fullCatalog = JSON.parse(readFileSync(new URL('../fallback-data.json', import.meta.url), 'utf8'));
+const genOpts = (seed) => ({
+  size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed,
+  enemyIds: fullCatalog.enemies.map((e) => e.id), weaponIds: fullCatalog.weapons.map((w) => w.id),
+});
+
+test('applyGenerated keeps id, published and sortOrder and takes the generated map and waves', () => {
+  const draft = { ...newLevel(), id: 'keep-me', published: true, sortOrder: 7, name: '', barSprite: '' };
+  const generated = { ...generateLevel(genOpts(42), fullCatalog), id: 'nope', published: false, sortOrder: 99 };
+  const next = applyGenerated(draft, generated);
+  assert.equal(next.id, 'keep-me');
+  assert.equal(next.published, true);
+  assert.equal(next.sortOrder, 7);
+  assert.deepEqual(next.path, generated.path);
+  assert.deepEqual(next.blocked, generated.blocked);
+  assert.deepEqual(next.waves, generated.waves);
+  assert.deepEqual(next.start, generated.start);
+  assert.deepEqual(next.end, generated.end);
+  assert.equal(next.cols, generated.cols);
+  assert.equal(next.rows, generated.rows);
+  assert.equal(next.startingCorks, generated.startingCorks);
+  assert.equal(next.startingWine, generated.startingWine);
+  assert.equal(next.name, generated.name, 'an empty name takes the generated one');
+  assert.equal(next.barSprite, '🍻', 'an empty bar sprite takes the generated one');
+  assert.equal(draft.name, '', 'input not mutated');
+  assert.equal(draft.path.length, 0, 'input not mutated');
+});
+
+test('applyGenerated only renames empty, default or generated names and keeps a set bar sprite', () => {
+  const gen = generateLevel(genOpts(7), fullCatalog);
+  const named = (name) => applyGenerated({ ...newLevel(), name, barSprite: 'https://x.test/bar.png' }, gen);
+  assert.equal(named('Board room').name, 'Board room');
+  assert.equal(named('   ').name, gen.name);
+  assert.equal(named(`${GENERATED_NAME_PREFIX}123`).name, gen.name);
+  assert.equal(named('New level').name, gen.name);
+  assert.equal(named('Board room').barSprite, 'https://x.test/bar.png');
+});
+
+test('a generated level can be saved with the fallback catalog', () => {
+  for (const seed of [1, 2, 3, 4821, 99999]) {
+    const next = applyGenerated(newLevel(), generateLevel(genOpts(seed), fullCatalog));
+    assert.deepEqual(canSave(next, fullCatalog), { ok: true, errors: [] }, `seed ${seed}`);
+  }
+});
+
+test('prepareForEditor turns a legacy level (enemyIds null) into its derived guest list, with a note', () => {
+  for (const legacy of [null, undefined]) {
+    const raw = drawn({
+      enemyIds: legacy,
+      waves: [
+        [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+        [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+      ],
+    });
+    const { level, warnings } = prepareForEditor(raw, cat2);
+    assert.deepEqual(level.enemyIds, ['q', 'e']);
+    assert.ok(warnings.some((w) => /guest list/.test(w)), warnings.join('; '));
+    assert.equal(raw.enemyIds, legacy, 'input not mutated');
+    assert.equal(canSave(level, cat2).ok, true);
+  }
+});
+
+test('prepareForEditor drops guests that no longer exist from the guest list, and defaults the bar sprite', () => {
+  const raw = drawn({ enemyIds: ['e', 'gone', 'e'] });
+  delete raw.barSprite;
+  const { level, warnings } = prepareForEditor(raw, cat2);
+  assert.deepEqual(level.enemyIds, ['e']);
+  assert.ok(warnings.some((w) => w.includes("'gone'")), warnings.join('; '));
+  assert.equal(level.barSprite, '🍻');
+});
+
+test('canSave explains guest-list problems in the editor\'s words', () => {
+  const empty = canSave(drawn({ enemyIds: [] }), catalog);
+  assert.equal(empty.ok, false);
+  assert.ok(empty.errors.includes('Put at least one guest on the guest list.'), empty.errors.join('; '));
+  const unlisted = canSave(drawn({ enemyIds: ['e'], waves: [[{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }]] }), cat2);
+  assert.ok(unlisted.errors.some((e) => /Wave 1/.test(e) && e.includes("'q'") && /not on the guest list/.test(e)), unlisted.errors.join('; '));
+  const gone = canSave(drawn({ enemyIds: ['e', 'gone'] }), catalog);
+  assert.ok(gone.errors.some((e) => e.includes("'gone'") && /no longer exists/.test(e)), gone.errors.join('; '));
+  assert.equal(canSave(drawn({ enemyIds: null }), catalog).ok, true, 'legacy list derived from the waves');
+});
+
+test('canSave needs a bar emoji or image when the bar sprite is set but blank', () => {
+  const res = canSave(drawn({ barSprite: '  ' }), catalog);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /bar/i.test(e)), res.errors.join('; '));
+  assert.equal(canSave(drawn({ barSprite: 'https://x.test/bar.png' }), catalog).ok, true);
 });

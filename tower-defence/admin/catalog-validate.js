@@ -1,10 +1,56 @@
 // Pure validation for the catalog editors (no DOM). Each function returns a list of
 // human-readable problems; an empty list means the item is valid to save.
+import { validateLevel } from '../shared/model.js';
+import { isUrl } from '../shared/mapping.js';
 
 export const EFFECTS = ['none', 'slow', 'distract', 'lure', 'splash'];
+// Effects that last a while after the hit: they need an effectDuration > 0.
+export const TIMED_EFFECTS = ['slow', 'distract', 'lure'];
 export const UPGRADE_FIELDS = ['cost', 'damage', 'range', 'fireRate', 'effectStrength'];
+// Effects a guest can be immune to (damage still applies).
+export const IMMUNITY_EFFECTS = ['slow', 'distract', 'lure'];
+export const MAX_QUOTES = 10;
+export const MAX_QUOTE_LENGTH = 120;
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// An emoji, or an http(s) image URL with a host.
+function checkSprite(errors, v) {
+  if (typeof v !== 'string' || !v.trim()) return errors.push('sprite is required');
+  if (!isUrl(v)) return;
+  let host = '';
+  try {
+    host = new URL(v).hostname;
+  } catch {
+    // invalid URL: reported below
+  }
+  if (!host) errors.push('image URL is not a valid web address');
+}
+
+function checkFallbackSprite(errors, v) {
+  if (typeof v !== 'string' || !v.trim()) errors.push('fallback emoji is required');
+  else if (isUrl(v)) errors.push('fallback emoji must be an emoji, not an image URL');
+}
+
+function checkQuotes(errors, quotes) {
+  if (quotes === undefined) return;
+  if (!Array.isArray(quotes)) return errors.push('quotes must be a list of lines');
+  if (quotes.length > MAX_QUOTES) errors.push(`at most ${MAX_QUOTES} quotes`);
+  quotes.forEach((q, i) => {
+    if (typeof q !== 'string' || !q.trim()) errors.push(`quote ${i + 1} is empty`);
+    else if (q.length > MAX_QUOTE_LENGTH) errors.push(`quote ${i + 1} is longer than ${MAX_QUOTE_LENGTH} characters`);
+  });
+}
+
+function checkImmuneTo(errors, immuneTo) {
+  if (immuneTo === undefined) return;
+  if (!Array.isArray(immuneTo)) return errors.push('immune to must be a list of effects');
+  for (const fx of immuneTo) {
+    if (!IMMUNITY_EFFECTS.includes(fx)) {
+      errors.push(`immune to: "${fx}" is not one of ${IMMUNITY_EFFECTS.join(', ')}`);
+    }
+  }
+}
 
 // min: 'positive' (> 0) or 'zero' (>= 0). int: DB column is an integer.
 function checkNumber(errors, label, v, { zeroOk = false, int = false } = {}) {
@@ -29,11 +75,10 @@ export function validateWeapon(w) {
     errors.push(`effect must be one of ${EFFECTS.join(', ')}`);
   }
   checkNumber(errors, 'effectStrength', w.effectStrength, { zeroOk: true });
-  if (w.effect !== 'none' && EFFECTS.includes(w.effect)) {
-    checkNumber(errors, 'effectDuration', w.effectDuration);
-    if (w.effect === 'slow' && isNum(w.effectStrength) && w.effectStrength >= 1) {
-      errors.push('effectStrength must be below 1 for slow');
-    }
+  // none/splash have no lasting effect, so their duration is ignored (0 by convention).
+  if (TIMED_EFFECTS.includes(w.effect)) checkNumber(errors, 'effectDuration', w.effectDuration);
+  if (w.effect === 'slow' && isNum(w.effectStrength) && w.effectStrength >= 1) {
+    errors.push('effectStrength must be below 1 for slow');
   }
   (w.upgrades ?? []).forEach((u, i) => {
     const tier = `upgrade ${i + 1}`;
@@ -49,6 +94,8 @@ export function validateWeapon(w) {
       errors.push(`${tier}: effectStrength must be below 1 for slow`);
     }
   });
+  checkSprite(errors, w.sprite);
+  checkFallbackSprite(errors, w.fallbackSprite);
   return errors;
 }
 
@@ -59,16 +106,41 @@ export function validateEnemy(e) {
   checkNumber(errors, 'speed', e.speed);
   checkNumber(errors, 'reward', e.reward, { int: true });
   checkNumber(errors, 'wineDamage', e.wineDamage, { int: true });
+  checkQuotes(errors, e.quotes);
+  checkImmuneTo(errors, e.immuneTo);
+  checkSprite(errors, e.sprite);
+  checkFallbackSprite(errors, e.fallbackSprite);
   return errors;
 }
 
-// Names of levels that reference a weapon (weaponIds) or an enemy (wave group enemyId).
-// Tolerates malformed raw levels (the admin loads invalid ones so they can be repaired).
+// Names of levels that reference a weapon (weaponIds) or an enemy (guest list enemyIds or a
+// wave group enemyId). Tolerates malformed raw levels (the admin loads invalid ones so they
+// can be repaired).
 export function levelsUsing(levels, { weaponId, enemyId } = {}) {
   const arr = (v) => (Array.isArray(v) ? v : []);
   return arr(levels)
     .filter((l) => l && (
       (weaponId !== undefined && arr(l.weaponIds).includes(weaponId))
-      || (enemyId !== undefined && arr(l.waves).some((w) => arr(w).some((g) => g?.enemyId === enemyId)))))
+      || (enemyId !== undefined && (arr(l.enemyIds).includes(enemyId)
+        || arr(l.waves).some((w) => arr(w).some((g) => g?.enemyId === enemyId))))))
+    .map((l) => String(l.name ?? l.id ?? '(unnamed level)'));
+}
+
+// Names of levels that are playable now but would fail validation (and so be hidden from the
+// game) once this weapon/enemy is deleted: left with no weapons, an empty guest list, or every
+// wave emptied. The deleted guest is treated as gone from the level's guest list too.
+export function levelsHiddenByDelete(levels, catalog, { weaponId, enemyId } = {}) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const weapons = arr(catalog?.weapons);
+  const enemies = arr(catalog?.enemies);
+  const after = {
+    weapons: weapons.filter((w) => w?.id !== weaponId),
+    enemies: enemies.filter((e) => e?.id !== enemyId),
+  };
+  const withoutGuest = (l) => (enemyId !== undefined && Array.isArray(l.enemyIds)
+    ? { ...l, enemyIds: l.enemyIds.filter((id) => id !== enemyId) }
+    : l);
+  return arr(levels)
+    .filter((l) => l && validateLevel(l, { weapons, enemies }).level && !validateLevel(withoutGuest(l), after).level)
     .map((l) => String(l.name ?? l.id ?? '(unnamed level)'));
 }
