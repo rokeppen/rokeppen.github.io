@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateWeapon, validateEnemy } from '../admin/catalog-validate.js';
+import { validateWeapon, validateEnemy, levelsUsing } from '../admin/catalog-validate.js';
 
 const weapon = (o = {}) => ({
   id: 'w1', name: 'Cannon', description: '', sprite: 'x', cost: 50, range: 2.5, damage: 8, fireRate: 1.5,
@@ -61,4 +61,19 @@ test('enemy numbers', () => {
   assert.ok(validateEnemy(enemy({ reward: 1.5 })).length);
   assert.ok(validateEnemy(enemy({ wineDamage: 1.5 })).length);
   assert.deepEqual(validateEnemy(enemy({ hp: 12.5, speed: 0.9 })), []);
+});
+
+test('levelsUsing finds weapon and enemy users and survives malformed levels', () => {
+  const levels = [
+    { id: 'a', name: 'A', weaponIds: ['w1'], waves: [[{ enemyId: 'e1' }]] },
+    { id: 'b', name: 'B', weaponIds: ['w2'], waves: [[{ enemyId: 'e2' }, null]] },
+    { id: 'c', name: 'C' },
+    { id: 'd', name: 'D', weaponIds: 'nope', waves: [null, 'x', [null, { enemyId: 'e1' }]] },
+    null,
+    { id: 'e', weaponIds: ['w1'], waves: {} },
+  ];
+  assert.deepEqual(levelsUsing(levels, { weaponId: 'w1' }), ['A', 'e']);
+  assert.deepEqual(levelsUsing(levels, { enemyId: 'e1' }), ['A', 'D']);
+  assert.deepEqual(levelsUsing(levels, { enemyId: 'zzz' }), []);
+  assert.deepEqual(levelsUsing(undefined, { weaponId: 'w1' }), []);
 });

@@ -2,7 +2,7 @@
 // state.dataSource and calls refresh() afterwards. DB strings only ever go through
 // textContent / .value (never innerHTML).
 import { state, refresh } from './admin.js';
-import { validateWeapon, validateEnemy, EFFECTS } from './catalog-validate.js';
+import { validateWeapon, validateEnemy, levelsUsing, EFFECTS } from './catalog-validate.js';
 
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -13,12 +13,8 @@ function h(tag, props = {}, ...children) {
 
 const toNum = (s) => (String(s).trim() === '' ? NaN : Number(s));
 
-function levelsUsingWeapon(id) {
-  return state.data.levels.filter((l) => l.weaponIds.includes(id));
-}
-function levelsUsingEnemy(id) {
-  return state.data.levels.filter((l) => l.waves.some((w) => w.some((g) => g.enemyId === id)));
-}
+const levelsUsingWeapon = (id) => levelsUsing(state.data.levels, { weaponId: id });
+const levelsUsingEnemy = (id) => levelsUsing(state.data.levels, { enemyId: id });
 
 // A labelled input bound to draft[key]. kind: 'text' | 'number' | 'textarea'.
 function field(draft, key, label, kind = 'text', extra = {}) {
@@ -46,11 +42,38 @@ function spriteField(draft) {
 function mountCatalog(el, cfg) {
   let selectedId = null; // null = nothing; '__new__' = new draft
 
-  async function afterWrite(result, errorEl, onOk) {
-    if (!result.ok) { errorEl.textContent = result.error ?? 'Save failed'; return; }
-    await refresh();
-    onOk();
+  let isDirty = () => false; // set by renderForm for the form currently shown
+
+  function select(id) {
+    if (isDirty() && !confirm('Discard unsaved changes?')) return;
+    selectedId = id;
     render();
+  }
+
+  // Runs a save/delete, shows any failure inline, always re-enables the button.
+  async function write(op, errorEl, btn, onOk) {
+    btn.disabled = true;
+    try {
+      let result;
+      try {
+        result = await op();
+      } catch (e) {
+        errorEl.textContent = e?.message ?? String(e);
+        return;
+      }
+      if (!result?.ok) { errorEl.textContent = result?.error ?? 'Save failed'; return; }
+      try {
+        await refresh();
+      } catch (e) {
+        errorEl.textContent = `Saved, but couldn't reload: ${e?.message ?? e}`;
+        return;
+      }
+      isDirty = () => false;
+      onOk();
+      render();
+    } finally {
+      btn.disabled = state.readOnly;
+    }
   }
 
   function renderForm(isNew, source) {
@@ -60,6 +83,8 @@ function mountCatalog(el, cfg) {
     form.append(h('h2', {}, isNew ? `New ${cfg.noun}` : draft.name || cfg.noun));
     if (!isNew) form.append(h('p', { className: 'muted' }, `id: ${draft.id}`));
     form.append(...cfg.buildFields(draft));
+    const snapshot = JSON.stringify(draft);
+    isDirty = () => JSON.stringify(draft) !== snapshot;
 
     const save = h('button', { type: 'submit', textContent: 'Save', disabled: state.readOnly });
     const actions = h('div', { className: 'actions' }, save);
@@ -69,13 +94,10 @@ function mountCatalog(el, cfg) {
         error.textContent = '';
         const used = cfg.usedBy(draft.id);
         const warn = used.length
-          ? `"${draft.name}" is used by: ${used.map((l) => l.name).join(', ')}.\n\nThose levels will lose it (the game cleans them on load). Delete anyway?`
+          ? `"${draft.name}" is used by: ${used.join(', ')}.\n\nThose levels will lose it (the game cleans them on load). Delete anyway?`
           : `Delete "${draft.name}"?`;
         if (!confirm(warn)) return;
-        del.disabled = true;
-        const result = await cfg.remove(draft.id);
-        del.disabled = state.readOnly;
-        await afterWrite(result, error, () => { selectedId = null; });
+        await write(() => cfg.remove(draft.id), error, del, () => { selectedId = null; });
       };
       actions.append(del);
     }
@@ -88,10 +110,7 @@ function mountCatalog(el, cfg) {
       cfg.normalize(draft);
       const problems = cfg.validate(draft);
       if (problems.length) { error.textContent = problems.join('; '); return; }
-      save.disabled = true;
-      const result = await cfg.save(draft);
-      save.disabled = state.readOnly;
-      await afterWrite(result, error, () => { selectedId = draft.id; });
+      await write(() => cfg.save(draft), error, save, () => { selectedId = draft.id; });
     };
     return form;
   }
@@ -101,12 +120,13 @@ function mountCatalog(el, cfg) {
     for (const item of cfg.items()) {
       const b = h('button', { type: 'button', className: 'secondary', textContent: `${item.sprite ?? ''} ${item.name}`.trim() });
       if (item.id === selectedId) b.setAttribute('aria-current', 'true');
-      b.onclick = () => { selectedId = item.id; render(); };
+      b.onclick = () => select(item.id);
       list.append(h('li', {}, b));
     }
     const add = h('button', { type: 'button', textContent: `+ New ${cfg.noun}`, disabled: state.readOnly });
-    add.onclick = () => { selectedId = '__new__'; render(); };
+    add.onclick = () => select('__new__');
 
+    isDirty = () => false;
     let editor = h('p', { className: 'muted' }, `Pick a ${cfg.noun} or create a new one.`);
     if (selectedId === '__new__') {
       editor = renderForm(true, { ...cfg.blank(), id: crypto.randomUUID() });
@@ -121,6 +141,7 @@ function mountCatalog(el, cfg) {
 }
 
 function weaponFields(draft) {
+  draft.upgrades ??= [];
   const out = [
     field(draft, 'name', 'Name').wrap,
     field(draft, 'description', 'Description', 'textarea').wrap,

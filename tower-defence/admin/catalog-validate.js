@@ -61,3 +61,14 @@ export function validateEnemy(e) {
   checkNumber(errors, 'wineDamage', e.wineDamage, { int: true });
   return errors;
 }
+
+// Names of levels that reference a weapon (weaponIds) or an enemy (wave group enemyId).
+// Tolerates malformed raw levels (the admin loads invalid ones so they can be repaired).
+export function levelsUsing(levels, { weaponId, enemyId } = {}) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  return arr(levels)
+    .filter((l) => l && (
+      (weaponId !== undefined && arr(l.weaponIds).includes(weaponId))
+      || (enemyId !== undefined && arr(l.waves).some((w) => arr(w).some((g) => g?.enemyId === enemyId)))))
+    .map((l) => String(l.name ?? l.id ?? '(unnamed level)'));
+}
