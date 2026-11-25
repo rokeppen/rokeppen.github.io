@@ -12,8 +12,9 @@ let dataSource = null;
 // Shared with the editors (Tasks 9-11). `data` is GameData incl. unpublished levels;
 // `data.levels` are the DB's own rows: unpublished and possibly invalid ones are included so they
 // can be repaired. `readOnly` is true only when the DB was unreachable on the first load (bundled
-// fallback shown): editors must not save then. `dataSource` is set by boot() before any render.
-export const state = { data: null, dataSource: null, readOnly: false };
+// fallback shown): editors must not save then. `dataSource` and `client` (the supabase client, for
+// Storage uploads) are set by boot() before any render.
+export const state = { data: null, dataSource: null, client: null, readOnly: false };
 
 export async function refresh() {
   const data = await dataSource.loadGameData({ includeUnpublished: true, includeInvalid: true });
@@ -166,6 +167,7 @@ async function boot() {
     fetchFallback: () => fetch('../fallback-data.json').then((r) => r.json()),
   });
   state.dataSource = dataSource;
+  state.client = supabase;
   render();
 }
 

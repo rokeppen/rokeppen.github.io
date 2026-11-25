@@ -130,3 +130,48 @@ test('fallbackSprite must be a non-empty emoji, not a URL', () => {
   assert.ok(validateWeapon(weapon({ fallbackSprite: ' ' })).length);
   assert.deepEqual(validateWeapon(weapon({ sprite: 'https://x.test/a.png', fallbackSprite: '🍺' })), []);
 });
+
+test('sprite: required; an image URL must have a host', () => {
+  for (const [check, mk] of [[validateWeapon, weapon], [validateEnemy, enemy]]) {
+    assert.deepEqual(check(mk({ sprite: 'https://x.supabase.co/storage/v1/object/public/sprites/a.png' })), []);
+    assert.deepEqual(check(mk({ sprite: '🍺' })), []);
+    assert.ok(check(mk({ sprite: 'http://' })).length);
+    assert.ok(check(mk({ sprite: 'https:// spaces .png' })).length);
+    assert.ok(check(mk({ sprite: '' })).length);
+    assert.ok(check(mk({ sprite: undefined })).length);
+  }
+});
+
+test('levelsUsing counts a guest on a level guest list (enemyIds), not only in waves', () => {
+  const levels = [
+    { id: 'a', name: 'A', enemyIds: ['e1', 'e2'], waves: [[{ enemyId: 'e2' }]] },
+    { id: 'b', name: 'B', enemyIds: ['e3'], waves: [] },
+    { id: 'c', name: 'C', enemyIds: 'bogus', waves: [[{ enemyId: 'e1' }]] },
+    { id: 'd', name: 'D', enemyIds: null, waves: [] },
+  ];
+  assert.deepEqual(levelsUsing(levels, { enemyId: 'e1' }), ['A', 'C']);
+  assert.deepEqual(levelsUsing(levels, { enemyId: 'e3' }), ['B']);
+  assert.deepEqual(levelsUsing(levels, { enemyId: 'e2' }), ['A']);
+});
+
+test('levelsHiddenByDelete accounts for the guest list (enemyIds) losing the deleted guest', () => {
+  const lvl = (o) => ({
+    cols: 3, rows: 1, start: { x: 0, y: 0 }, end: { x: 2, y: 0 },
+    path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], blocked: [],
+    startingCorks: 10, startingWine: 5, weaponIds: ['w1'], ...o,
+  });
+  const g = (enemyId) => ({ enemyId, count: 1, intervalS: 1, delayS: 0 });
+  const catalog = { weapons: [{ id: 'w1' }], enemies: [{ id: 'e1' }, { id: 'e2' }] };
+  const levels = [
+    lvl({ id: 'solo', name: 'Solo', enemyIds: ['e1'], waves: [[g('e1')]] }),
+    lvl({ id: 'pair', name: 'Pair', enemyIds: ['e1', 'e2'], waves: [[g('e1')], [g('e2')]] }),
+    lvl({ id: 'legacy', name: 'Legacy', enemyIds: null, waves: [[g('e2')]] }),
+    lvl({ id: 'spare', name: 'Spare', enemyIds: ['e1', 'e2'], waves: [[g('e2')]] }),
+  ];
+  // Solo's guest list becomes empty; Pair and Spare keep e2.
+  assert.deepEqual(levelsHiddenByDelete(levels, catalog, { enemyId: 'e1' }), ['Solo']);
+  assert.deepEqual(levelsHiddenByDelete(levels, catalog, { enemyId: 'e2' }), ['Legacy', 'Spare']);
+  // Deleting a weapon leaves guest lists alone.
+  const twoWeapons = { ...catalog, weapons: [{ id: 'w1' }, { id: 'w2' }] };
+  assert.deepEqual(levelsHiddenByDelete(levels, twoWeapons, { weaponId: 'w2' }), []);
+});
