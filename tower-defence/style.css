@@ -37,6 +37,8 @@ p {
 }
 
 .start {
+    display: inline-block;
+    text-decoration: none;
     font-size: 1.2rem;
     font-weight: bold;
     padding: 14px 40px;
@@ -47,9 +49,22 @@ p {
     cursor: pointer;
 }
 
-.start:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+.start:hover,
+.start:focus-visible {
+    background: #f2d48a;
+}
+
+.admin {
+    display: block;
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #f4f1de;
+    opacity: 0.5;
+    text-decoration: none;
+}
+
+.admin:hover {
+    opacity: 0.9;
 }
 
 .back {
