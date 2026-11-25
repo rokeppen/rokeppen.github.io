@@ -3,21 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadeau van de dag</title>
+    <title>Projects</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="gift.png">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="script.js"></script>
 </head>
 <body>
 <div class="app">
-    <div class="banner">
-        <img src="gift.png" alt="Gift Icon" class="banner-icon">
-        <h2 class="banner-title">Cadeau van de dag</h2>
-    </div>
-    <div class="card">
-        <h1 id="questionText">Loading...</h1>
-        <div id="optionsContainer"></div>
+    <h1 class="title">Projects</h1>
+    <div class="projects">
+        <a class="project" href="gift/">
+            <img src="gift/gift.png" alt="">
+            <span class="project-name">Cadeau van de dag</span>
+            <span class="project-desc">Answer the daily question to unlock a gift</span>
+        </a>
+        <a class="project" href="words/">
+            <img src="words/cards.png" alt="">
+            <span class="project-name">Kaartjes</span>
+            <span class="project-desc">Practice words with flash cards</span>
+        </a>
+        <a class="project" href="tower-defence/">
+            <span class="project-emoji">🏰</span>
+            <span class="project-name">Tower Defence</span>
+            <span class="project-desc">Defend your base against waves of enemies</span>
+        </a>
     </div>
 </div>
 </body>
