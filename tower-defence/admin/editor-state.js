@@ -1,12 +1,13 @@
 // Pure level-editing operations for the admin level editor.
 // No DOM, no CDN imports: tested in Node. Every function returns a new level and
 // never mutates its input; when an edit is refused the same level object is returned.
-import { isPathValid, validateLevel } from '../shared/model.js';
+import { isPathValid, validateLevel, levelEnemyIds } from '../shared/model.js';
 
 export const DEFAULT_COLS = 16;
 export const DEFAULT_ROWS = 10;
 export const MIN_SIZE = 5;
 export const MAX_SIZE = 30;
+export const DEFAULT_BAR_SPRITE = '🍻';
 
 const same = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y;
 const tile = (t) => ({ x: t.x, y: t.y });
@@ -26,9 +27,11 @@ export function newLevel() {
     path: [],
     blocked: [],
     weaponIds: [],
+    enemyIds: [],
     startingCorks: 100,
     startingWine: 20,
     waves: [],
+    barSprite: DEFAULT_BAR_SPRITE,
   };
 }
 
@@ -152,6 +155,17 @@ function setupProblems(level, catalog) {
   for (const id of chosen) {
     if (!weaponIds.has(id)) errors.push(`Weapon '${id}' no longer exists — untick it.`);
   }
+  const explicitGuests = Array.isArray(level.enemyIds);
+  const guests = new Set(levelEnemyIds(level));
+  if (explicitGuests) {
+    if (guests.size === 0) errors.push('Put at least one guest on the guest list.');
+    for (const id of guests) {
+      if (!enemyIds.has(id)) errors.push(`Guest '${id}' no longer exists — take it off the guest list.`);
+    }
+  }
+  if (level.barSprite != null && String(level.barSprite).trim() === '') {
+    errors.push('Pick a bar emoji or upload a bar image.');
+  }
   if (!isInt(level.startingCorks, 1)) errors.push('Starting corks must be a whole number of at least 1.');
   if (!isInt(level.startingWine, 1)) errors.push('Starting wine must be a whole number of at least 1.');
   const waves = Array.isArray(level.waves) ? level.waves : [];
@@ -163,6 +177,7 @@ function setupProblems(level, catalog) {
       const at = `${w}, group ${gi + 1}`;
       if (!g || typeof g !== 'object') { errors.push(`${at} is malformed — remove it.`); return; }
       if (!enemyIds.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' no longer exists — remove that group.`);
+      else if (!guests.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' is not on the guest list — list the guest or remove that group.`);
       if (!isInt(g.count, 1)) errors.push(`${at}: count must be a whole number of at least 1.`);
       if (!isNum(g.intervalS) || g.intervalS <= 0) errors.push(`${at}: interval must be more than 0 seconds.`);
       if (!isNum(g.delayS) || g.delayS < 0) errors.push(`${at}: delay can't be negative.`);
@@ -240,6 +255,66 @@ export function removeGroup(level, waveIdx, groupIdx) {
   return editWave(level, waveIdx, (wave) => (groupIdx >= 0 && groupIdx < wave.length
     ? wave.filter((_, k) => k !== groupIdx)
     : wave));
+}
+
+// ---------- guest list ----------
+
+// The guest list (deduped). Groups of guests taken off the list are removed from the waves,
+// and so are waves left without guests; adding guests leaves the waves untouched.
+export function setGuests(level, ids) {
+  const enemyIds = [...new Set(ids)];
+  const listed = new Set(enemyIds);
+  const waves = wavesOf(level);
+  const dropped = (g) => g && typeof g === 'object' && !listed.has(g.enemyId);
+  if (!waves.some((w) => Array.isArray(w) && w.some(dropped))) return { ...level, enemyIds };
+  const kept = waves
+    .map((w) => (Array.isArray(w) && w.some(dropped) ? w.filter((g) => !dropped(g)) : w))
+    .filter((w, i) => !(Array.isArray(w) && w.length === 0 && waves[i].length > 0));
+  return { ...level, enemyIds, waves: kept };
+}
+
+// Guests the waves use, in order of first use.
+export function guestsInUse(level) {
+  const ids = [];
+  for (const wave of wavesOf(level)) {
+    for (const g of Array.isArray(wave) ? wave : []) {
+      if (g && typeof g === 'object' && !ids.includes(g.enemyId)) ids.push(g.enemyId);
+    }
+  }
+  return ids;
+}
+
+// 1-based numbers of the waves that use a guest.
+export function guestWaves(level, enemyId) {
+  const out = [];
+  wavesOf(level).forEach((wave, i) => {
+    if (Array.isArray(wave) && wave.some((g) => g && typeof g === 'object' && g.enemyId === enemyId)) out.push(i + 1);
+  });
+  return out;
+}
+
+// ---------- generator ----------
+
+export const GENERATED_NAME_PREFIX = 'Generated party #';
+const DEFAULT_NAME = newLevel().name;
+
+// Merges a generateLevel() result into the draft. id, published and sortOrder always stay.
+// The name is replaced only when it is empty, the new-level default or an earlier generated
+// name; the bar sprite only when it is empty.
+export function applyGenerated(draft, generated) {
+  const { id, published, sortOrder, ...fields } = generated ?? {};
+  const name = String(draft.name ?? '').trim();
+  const rename = name === '' || name === DEFAULT_NAME || name.startsWith(GENERATED_NAME_PREFIX);
+  const bar = typeof draft.barSprite === 'string' ? draft.barSprite.trim() : '';
+  return {
+    ...draft,
+    ...structuredClone(fields),
+    id: draft.id,
+    published: draft.published,
+    sortOrder: draft.sortOrder,
+    name: rename ? fields.name ?? draft.name : draft.name,
+    barSprite: bar ? draft.barSprite : fields.barSprite ?? DEFAULT_BAR_SPRITE,
+  };
 }
 
 // "6 🧑‍💼 + 2 ❓": guests per enemy type, in order of first appearance.
@@ -345,6 +420,23 @@ export function prepareForEditor(raw, catalog = {}) {
     warnings.push('The wave list was malformed and was cleared.');
   }
 
+  // Guest list: unknown guests are dropped. A legacy level (no list) gets the guests its
+  // (repaired) waves use, so saving writes an explicit list.
+  let guests;
+  if (Array.isArray(src.enemyIds)) {
+    guests = [];
+    for (const id of new Set(src.enemyIds)) {
+      if (enemyIds.has(id)) guests.push(id);
+      else warnings.push(`Guest '${id}' no longer exists — removed from the guest list.`);
+    }
+  } else {
+    if (src.enemyIds != null) warnings.push('The guest list was malformed.');
+    guests = levelEnemyIds({ waves });
+    warnings.push(`This level had no guest list yet; it was set to the guests its waves use${guests.length ? '' : ' (none)'}.`);
+  }
+  const barSprite = typeof src.barSprite === 'string' && src.barSprite.trim() ? src.barSprite : DEFAULT_BAR_SPRITE;
+  if (src.barSprite != null && barSprite !== src.barSprite) warnings.push('The bar image was invalid and was reset to 🍻.');
+
   const level = {
     ...src,
     id: src.id ?? crypto.randomUUID(),
@@ -353,8 +445,10 @@ export function prepareForEditor(raw, catalog = {}) {
     published: src.published === true,
     cols, rows, start, end, path, blocked,
     weaponIds: weapons,
+    enemyIds: guests,
     startingCorks, startingWine,
     waves,
+    barSprite,
   };
   return { level, warnings };
 }

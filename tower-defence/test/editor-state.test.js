@@ -5,7 +5,9 @@ import {
   eraseTile, duplicateLevel, applyTool,
   setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup,
   waveSummary, prepareForEditor,
+  setGuests, guestsInUse, guestWaves, applyGenerated, GENERATED_NAME_PREFIX,
 } from '../admin/editor-state.js';
+import { generateLevel } from '../shared/generator.js';
 import { readFileSync } from 'node:fs';
 
 const catalog = { weapons: [{ id: 'w' }], enemies: [{ id: 'e' }] };
@@ -19,6 +21,7 @@ function drawn(overrides = {}) {
     end: { x: 3, y: 0 },
     path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }],
     weaponIds: ['w'],
+    enemyIds: ['e'],
     waves: [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]],
     ...overrides,
   };
@@ -387,4 +390,151 @@ test('extendPath refuses to extend past the end tile', () => {
 test('duplicateLevel of a nameless level is "Untitled (copy)"', () => {
   assert.equal(duplicateLevel(drawn({ name: null })).name, 'Untitled (copy)');
   assert.equal(duplicateLevel(drawn({ name: '  ' })).name, 'Untitled (copy)');
+});
+
+// ---------- guest list, generator, bar image (Task 7) ----------
+
+test('newLevel has an empty guest list and the default bar sprite', () => {
+  const l = newLevel();
+  assert.deepEqual(l.enemyIds, []);
+  assert.equal(l.barSprite, '🍻');
+});
+
+test('setGuests sets the (deduped) guest list without mutating its input', () => {
+  const l = drawn({ enemyIds: null });
+  const ids = ['e', 'q', 'e'];
+  const next = setGuests(l, ids);
+  assert.deepEqual(next.enemyIds, ['e', 'q']);
+  assert.equal(l.enemyIds, null, 'input level not mutated');
+  assert.deepEqual(ids, ['e', 'q', 'e'], 'input ids not mutated');
+  assert.notEqual(next.enemyIds, ids);
+});
+
+test('setGuests drops the wave groups of guests taken off the list (and waves left empty)', () => {
+  const l = drawn({
+    enemyIds: ['e', 'q'],
+    waves: [
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 2, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'q', count: 3, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  const next = setGuests(l, ['e']);
+  assert.deepEqual(next.waves, [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]]);
+  assert.equal(l.waves.length, 2, 'input not mutated');
+  assert.equal(l.waves[0].length, 2, 'input not mutated');
+  // Adding a guest leaves the waves alone (same array).
+  assert.equal(setGuests(l, ['e', 'q', 'x']).waves, l.waves);
+});
+
+test('guestsInUse lists the guests the waves use, in order of first use', () => {
+  const l = drawn({
+    waves: [
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }, null],
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  assert.deepEqual(guestsInUse(l), ['q', 'e']);
+  assert.deepEqual(guestsInUse(drawn({ waves: [] })), []);
+  assert.deepEqual(guestsInUse({ waves: 'junk' }), []);
+});
+
+test('guestWaves lists the (1-based) waves that use a guest', () => {
+  const l = drawn({
+    waves: [
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }],
+      [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+    ],
+  });
+  assert.deepEqual(guestWaves(l, 'q'), [1, 3]);
+  assert.deepEqual(guestWaves(l, 'zzz'), []);
+});
+
+const fullCatalog = JSON.parse(readFileSync(new URL('../fallback-data.json', import.meta.url), 'utf8'));
+const genOpts = (seed) => ({
+  size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed,
+  enemyIds: fullCatalog.enemies.map((e) => e.id), weaponIds: fullCatalog.weapons.map((w) => w.id),
+});
+
+test('applyGenerated keeps id, published and sortOrder and takes the generated map and waves', () => {
+  const draft = { ...newLevel(), id: 'keep-me', published: true, sortOrder: 7, name: '', barSprite: '' };
+  const generated = { ...generateLevel(genOpts(42), fullCatalog), id: 'nope', published: false, sortOrder: 99 };
+  const next = applyGenerated(draft, generated);
+  assert.equal(next.id, 'keep-me');
+  assert.equal(next.published, true);
+  assert.equal(next.sortOrder, 7);
+  assert.deepEqual(next.path, generated.path);
+  assert.deepEqual(next.blocked, generated.blocked);
+  assert.deepEqual(next.waves, generated.waves);
+  assert.deepEqual(next.start, generated.start);
+  assert.deepEqual(next.end, generated.end);
+  assert.equal(next.cols, generated.cols);
+  assert.equal(next.rows, generated.rows);
+  assert.equal(next.startingCorks, generated.startingCorks);
+  assert.equal(next.startingWine, generated.startingWine);
+  assert.equal(next.name, generated.name, 'an empty name takes the generated one');
+  assert.equal(next.barSprite, '🍻', 'an empty bar sprite takes the generated one');
+  assert.equal(draft.name, '', 'input not mutated');
+  assert.equal(draft.path.length, 0, 'input not mutated');
+});
+
+test('applyGenerated only renames empty, default or generated names and keeps a set bar sprite', () => {
+  const gen = generateLevel(genOpts(7), fullCatalog);
+  const named = (name) => applyGenerated({ ...newLevel(), name, barSprite: 'https://x.test/bar.png' }, gen);
+  assert.equal(named('Board room').name, 'Board room');
+  assert.equal(named('   ').name, gen.name);
+  assert.equal(named(`${GENERATED_NAME_PREFIX}123`).name, gen.name);
+  assert.equal(named('New level').name, gen.name);
+  assert.equal(named('Board room').barSprite, 'https://x.test/bar.png');
+});
+
+test('a generated level can be saved with the fallback catalog', () => {
+  for (const seed of [1, 2, 3, 4821, 99999]) {
+    const next = applyGenerated(newLevel(), generateLevel(genOpts(seed), fullCatalog));
+    assert.deepEqual(canSave(next, fullCatalog), { ok: true, errors: [] }, `seed ${seed}`);
+  }
+});
+
+test('prepareForEditor turns a legacy level (enemyIds null) into its derived guest list, with a note', () => {
+  for (const legacy of [null, undefined]) {
+    const raw = drawn({
+      enemyIds: legacy,
+      waves: [
+        [{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+        [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }],
+      ],
+    });
+    const { level, warnings } = prepareForEditor(raw, cat2);
+    assert.deepEqual(level.enemyIds, ['q', 'e']);
+    assert.ok(warnings.some((w) => /guest list/.test(w)), warnings.join('; '));
+    assert.equal(raw.enemyIds, legacy, 'input not mutated');
+    assert.equal(canSave(level, cat2).ok, true);
+  }
+});
+
+test('prepareForEditor drops guests that no longer exist from the guest list, and defaults the bar sprite', () => {
+  const raw = drawn({ enemyIds: ['e', 'gone', 'e'] });
+  delete raw.barSprite;
+  const { level, warnings } = prepareForEditor(raw, cat2);
+  assert.deepEqual(level.enemyIds, ['e']);
+  assert.ok(warnings.some((w) => w.includes("'gone'")), warnings.join('; '));
+  assert.equal(level.barSprite, '🍻');
+});
+
+test('canSave explains guest-list problems in the editor\'s words', () => {
+  const empty = canSave(drawn({ enemyIds: [] }), catalog);
+  assert.equal(empty.ok, false);
+  assert.ok(empty.errors.includes('Put at least one guest on the guest list.'), empty.errors.join('; '));
+  const unlisted = canSave(drawn({ enemyIds: ['e'], waves: [[{ enemyId: 'q', count: 1, intervalS: 1, delayS: 0 }]] }), cat2);
+  assert.ok(unlisted.errors.some((e) => /Wave 1/.test(e) && e.includes("'q'") && /not on the guest list/.test(e)), unlisted.errors.join('; '));
+  const gone = canSave(drawn({ enemyIds: ['e', 'gone'] }), catalog);
+  assert.ok(gone.errors.some((e) => e.includes("'gone'") && /no longer exists/.test(e)), gone.errors.join('; '));
+  assert.equal(canSave(drawn({ enemyIds: null }), catalog).ok, true, 'legacy list derived from the waves');
+});
+
+test('canSave needs a bar emoji or image when the bar sprite is set but blank', () => {
+  const res = canSave(drawn({ barSprite: '  ' }), catalog);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => /bar/i.test(e)), res.errors.join('; '));
+  assert.equal(canSave(drawn({ barSprite: 'https://x.test/bar.png' }), catalog).ok, true);
 });
