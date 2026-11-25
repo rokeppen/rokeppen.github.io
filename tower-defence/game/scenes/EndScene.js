@@ -5,7 +5,7 @@
 import { PALETTE } from '../theme.js';
 import { Button, label } from '../ui/widgets.js';
 import { addCard } from '../ui/textures.js';
-import { starsFor, recordStars } from '../progress.js';
+import { starsFor, recordStars, recordHighScore, highScoreLine } from '../progress.js';
 
 export class EndScene extends Phaser.Scene {
   constructor() {
@@ -27,13 +27,14 @@ export class EndScene extends Phaser.Scene {
     const next = r.won ? levels[index + 1] : null;
     const stars = r.won ? starsFor(r.wine, r.startingWine) : 0;
     if (r.won) recordStars(r.levelId, stars);
+    const record = r.won ? recordHighScore(r.levelId, r.corks) : null;
 
     const dim = this.add.rectangle(0, 0, width, height, PALETTE.overlay, 0).setOrigin(0).setInteractive();
     this.tweens.add({ targets: dim, fillAlpha: 0.45, duration: 300 });
 
     const panel = this.add.container(cx, cy);
     const pw = 540;
-    const ph = 380;
+    const ph = record ? 404 : 380;
     const bg = addCard(this, 0, 0, pw, ph, 'card');
     const icon = label(this, 0, -ph / 2 + 64, r.won ? '🍻' : '🍺', { size: 64 }).setOrigin(0.5);
     const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!'
@@ -58,7 +59,13 @@ export class EndScene extends Phaser.Scene {
         size: 15, color: PALETTE.muted,
       }).setOrigin(0.5);
     if (stats.width > pw - 40) stats.setScale((pw - 40) / stats.width);
-    panel.add([bg, icon, title, sub, starText, stats]);
+    const scoreText = label(this, 0, -ph / 2 + 272, highScoreLine(record), {
+      size: 16, bold: record?.isNew ?? false, color: record?.isNew ? PALETTE.capsText : PALETTE.muted,
+    }).setOrigin(0.5);
+    panel.add([bg, icon, title, sub, starText, stats, scoreText]);
+    if (record?.isNew) {
+      this.tweens.add({ targets: scoreText, scale: 1.12, duration: 420, yoyo: true, repeat: 2, delay: 450, ease: 'Sine.easeInOut' });
+    }
     panel.setScale(0.7).setAlpha(0);
     this.tweens.add({ targets: panel, scale: 1, alpha: 1, duration: 380, ease: 'Back.easeOut' });
 

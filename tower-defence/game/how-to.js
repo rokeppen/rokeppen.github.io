@@ -25,7 +25,7 @@ export function howToPlay(data) {
     ['🃏', 'Play one card per turn (build, upgrade, sell, bell). You draw one each turn; the rest stay.'],
     ['🚶', 'Then the guests walk the carpet tile by tile, up to their speed, toward the beer bar 🍻 and drain your kegs 🍺.'],
     ['🎯', 'Your weapons fire as guests pass, after every step. Guests escorted out pay bottle caps 🧢.'],
-    ['⬆️', 'Upgrade and Sell cards target a weapon on the floor. Cards are free; caps 🧢 are your score.'],
+    ['⬆️', 'Upgrade and Sell cards target a weapon on the floor. Cards are free; caps 🧢 are your score: beat your high score.'],
     [{ weapon: 'cafe', fallback: '🪑' }, 'Café: a cosy pub corner no guest can resist. Distracts one guest at a time.'],
     immuneRow(data?.enemies),
     [{ weapon: 'pizza-hut', fallback: '🍕' }, 'Pizza Hut Delivery: free pizza lures the whole crowd and stalls them.'],
