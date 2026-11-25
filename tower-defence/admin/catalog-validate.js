@@ -4,8 +4,38 @@ import { validateLevel } from '../shared/model.js';
 
 export const EFFECTS = ['none', 'slow', 'distract', 'lure', 'splash'];
 export const UPGRADE_FIELDS = ['cost', 'damage', 'range', 'fireRate', 'effectStrength'];
+// Effects a guest can be immune to (damage still applies).
+export const IMMUNITY_EFFECTS = ['slow', 'distract', 'lure'];
+export const MAX_QUOTES = 10;
+export const MAX_QUOTE_LENGTH = 120;
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const isUrl = (s) => /^https?:\/\//.test(s);
+
+function checkFallbackSprite(errors, v) {
+  if (typeof v !== 'string' || !v.trim()) errors.push('fallback emoji is required');
+  else if (isUrl(v)) errors.push('fallback emoji must be an emoji, not an image URL');
+}
+
+function checkQuotes(errors, quotes) {
+  if (quotes === undefined) return;
+  if (!Array.isArray(quotes)) return errors.push('quotes must be a list of lines');
+  if (quotes.length > MAX_QUOTES) errors.push(`at most ${MAX_QUOTES} quotes`);
+  quotes.forEach((q, i) => {
+    if (typeof q !== 'string' || !q.trim()) errors.push(`quote ${i + 1} is empty`);
+    else if (q.length > MAX_QUOTE_LENGTH) errors.push(`quote ${i + 1} is longer than ${MAX_QUOTE_LENGTH} characters`);
+  });
+}
+
+function checkImmuneTo(errors, immuneTo) {
+  if (immuneTo === undefined) return;
+  if (!Array.isArray(immuneTo)) return errors.push('immune to must be a list of effects');
+  for (const fx of immuneTo) {
+    if (!IMMUNITY_EFFECTS.includes(fx)) {
+      errors.push(`immune to: "${fx}" is not one of ${IMMUNITY_EFFECTS.join(', ')}`);
+    }
+  }
+}
 
 // min: 'positive' (> 0) or 'zero' (>= 0). int: DB column is an integer.
 function checkNumber(errors, label, v, { zeroOk = false, int = false } = {}) {
@@ -50,6 +80,7 @@ export function validateWeapon(w) {
       errors.push(`${tier}: effectStrength must be below 1 for slow`);
     }
   });
+  checkFallbackSprite(errors, w.fallbackSprite);
   return errors;
 }
 
@@ -60,6 +91,9 @@ export function validateEnemy(e) {
   checkNumber(errors, 'speed', e.speed);
   checkNumber(errors, 'reward', e.reward, { int: true });
   checkNumber(errors, 'wineDamage', e.wineDamage, { int: true });
+  checkQuotes(errors, e.quotes);
+  checkImmuneTo(errors, e.immuneTo);
+  checkFallbackSprite(errors, e.fallbackSprite);
   return errors;
 }
 

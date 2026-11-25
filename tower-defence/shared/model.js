@@ -1,4 +1,5 @@
 // Pure data-shape validation. No DOM, no CDN imports.
+// Internal names predate the beer theme: corks/startingCorks = bottle caps, wine/startingWine/wineDamage = kegs.
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -26,6 +27,19 @@ export function isPathValid(path, start, end, cols, rows) {
     last.x === end?.x && last.y === end?.y;
 }
 
+// The level's guest list: `enemyIds` when it is an array, else (legacy level) the unique
+// enemy ids used in its waves, in order of first use.
+export function levelEnemyIds(level) {
+  if (Array.isArray(level?.enemyIds)) return level.enemyIds;
+  const ids = [];
+  for (const wave of Array.isArray(level?.waves) ? level.waves : []) {
+    for (const g of Array.isArray(wave) ? wave : []) {
+      if (g?.enemyId !== undefined && !ids.includes(g.enemyId)) ids.push(g.enemyId);
+    }
+  }
+  return ids;
+}
+
 export function validateLevel(level, catalog) {
   const errors = [];
   const name = level?.name ?? level?.id ?? 'level';
@@ -35,6 +49,12 @@ export function validateLevel(level, catalog) {
   if (!isPathValid(level?.path, level?.start, level?.end, level?.cols, level?.rows)) {
     return { level: null, errors: [`${name}: path is invalid`] };
   }
+
+  const guestList = [...levelEnemyIds(level)];
+  if (guestList.length === 0 && Array.isArray(level.enemyIds)) {
+    return { level: null, errors: [`${name}: no guests on the guest list`] };
+  }
+  const guests = new Set(guestList);
 
   const keptWeapons = [];
   for (const id of level.weaponIds ?? []) {
@@ -48,6 +68,8 @@ export function validateLevel(level, catalog) {
     for (const g of wave ?? []) {
       if (!enemyIds.has(g?.enemyId)) {
         errors.push(`${name}: wave ${wi + 1} has unknown enemy "${g?.enemyId}", group dropped`);
+      } else if (!guests.has(g.enemyId)) {
+        errors.push(`${name}: wave ${wi + 1} guest "${g.enemyId}" is not on the level's guest list, group dropped`);
       } else if (!Number.isInteger(g.count) || g.count < 1) {
         errors.push(`${name}: wave ${wi + 1} group "${g.enemyId}" count must be a whole number >= 1, group dropped`);
       } else if (!isNum(g.intervalS) || g.intervalS <= 0) {
@@ -96,6 +118,7 @@ export function validateLevel(level, catalog) {
       ...level,
       path: level.path.map(p => ({ ...p })),
       weaponIds: keptWeapons,
+      enemyIds: guestList,
       waves,
       blocked,
     },

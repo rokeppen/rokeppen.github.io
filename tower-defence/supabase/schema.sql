@@ -14,7 +14,9 @@ create table if not exists public.weapons (
     check (effect in ('none', 'slow', 'distract', 'lure', 'splash')),
   effect_strength real not null default 0,
   effect_duration real not null default 0,
-  upgrades jsonb not null default '[]'::jsonb
+  upgrades jsonb not null default '[]'::jsonb,
+  -- emoji shown when sprite is an image URL that fails to load
+  fallback_sprite text
 );
 
 create table if not exists public.enemies (
@@ -25,7 +27,10 @@ create table if not exists public.enemies (
   hp real not null default 1,
   speed real not null default 1,
   reward int not null default 0,
-  wine_damage int not null default 1
+  wine_damage int not null default 1,
+  quotes jsonb not null default '[]'::jsonb,
+  immune_to text[] not null default '{}',
+  fallback_sprite text
 );
 
 create table if not exists public.levels (
@@ -42,7 +47,10 @@ create table if not exists public.levels (
   weapon_ids text[] not null default '{}',
   starting_corks int not null default 0,
   starting_wine int not null default 0,
-  waves jsonb not null default '[]'::jsonb
+  waves jsonb not null default '[]'::jsonb,
+  -- guest list; null = legacy row, the app derives it from the waves
+  enemy_ids text[],
+  bar_sprite text not null default '🍻'
 );
 
 create table if not exists public.admins (
@@ -122,3 +130,28 @@ create policy "admins delete levels" on public.levels
 drop policy if exists "users see their own admin row" on public.admins;
 create policy "users see their own admin row" on public.admins
   for select to authenticated using (user_id = auth.uid());
+
+-- Storage: admin-uploaded sprite images. Public read, admin-only write, max 1 MB, images only.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('sprites', 'sprites', true, 1048576,
+  array['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+-- storage.objects already has RLS enabled by Supabase.
+drop policy if exists sprites_public_read on storage.objects;
+create policy sprites_public_read on storage.objects
+  for select to anon, authenticated using (bucket_id = 'sprites');
+drop policy if exists sprites_admin_insert on storage.objects;
+create policy sprites_admin_insert on storage.objects
+  for insert to authenticated with check (bucket_id = 'sprites' and public.is_admin());
+drop policy if exists sprites_admin_update on storage.objects;
+create policy sprites_admin_update on storage.objects
+  for update to authenticated
+  using (bucket_id = 'sprites' and public.is_admin())
+  with check (bucket_id = 'sprites' and public.is_admin());
+drop policy if exists sprites_admin_delete on storage.objects;
+create policy sprites_admin_delete on storage.objects
+  for delete to authenticated using (bucket_id = 'sprites' and public.is_admin());

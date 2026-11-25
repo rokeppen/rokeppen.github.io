@@ -41,6 +41,14 @@ function field(draft, key, label, kind = 'text', extra = {}) {
   return { wrap, input };
 }
 
+// Until the editor has its own fallback emoji field: an emoji sprite is its own fallback;
+// an image URL keeps the existing fallback (or the default).
+function syncFallbackSprite(item, dflt) {
+  const sprite = typeof item.sprite === 'string' ? item.sprite.trim() : '';
+  if (sprite && !/^https?:\/\//.test(sprite)) item.fallbackSprite = sprite;
+  else if (typeof item.fallbackSprite !== 'string' || !item.fallbackSprite.trim()) item.fallbackSprite = dflt;
+}
+
 function spriteField(draft) {
   const { wrap, input } = field(draft, 'sprite', 'Sprite (emoji)');
   const preview = h('span', { className: 'sprite-preview', textContent: draft.sprite ?? '' });
@@ -213,6 +221,7 @@ export function mountWeapons(el) {
     }),
     normalize: (w) => {
       if (w.effect === 'none') { w.effectStrength = 0; w.effectDuration = 0; }
+      syncFallbackSprite(w, '❔');
     },
     buildFields: weaponFields,
     validate: validateWeapon,
@@ -229,7 +238,7 @@ export function mountEnemies(el) {
     noun: 'enemy',
     items: () => state.data.enemies,
     blank: () => ({ name: '', description: '', sprite: '🙂', hp: 20, speed: 1, reward: 5, wineDamage: 1 }),
-    normalize: () => {},
+    normalize: (e) => syncFallbackSprite(e, '👤'),
     buildFields: (draft) => [
       field(draft, 'name', 'Name').wrap,
       field(draft, 'description', 'Description', 'textarea').wrap,

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isPathValid, validateLevel, prepareGameData } from '../shared/model.js';
+import { isPathValid, validateLevel, prepareGameData, levelEnemyIds } from '../shared/model.js';
 
 const catalog = {
   weapons: [{ id: 'a' }, { id: 'b' }],
-  enemies: [{ id: 'e' }],
+  enemies: [{ id: 'e' }, { id: 'f' }],
 };
 
 function makeLevel(overrides = {}) {
@@ -17,6 +17,7 @@ function makeLevel(overrides = {}) {
     weaponIds: ['a'],
     startingCorks: 100, startingWine: 5,
     waves: [[{ enemyId: 'e', count: 2, intervalS: 1, delayS: 0 }]],
+    enemyIds: ['e'],
     ...overrides,
   };
 }
@@ -158,4 +159,48 @@ test('prepareGameData drops levels that fail validation', () => {
     levels: [makeLevel({ id: 'bad', weaponIds: [] }), makeLevel({ id: 'ok' })],
   };
   assert.deepEqual(prepareGameData(raw).levels.map(l => l.id), ['ok']);
+});
+
+test('levelEnemyIds uses enemyIds when it is an array', () => {
+  assert.deepEqual(levelEnemyIds(makeLevel({ enemyIds: ['f', 'e'] })), ['f', 'e']);
+  assert.deepEqual(levelEnemyIds(makeLevel({ enemyIds: [] })), []);
+});
+
+test('levelEnemyIds derives unique ids from waves when enemyIds is null or missing', () => {
+  const waves = [
+    [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }, { enemyId: 'f', count: 1, intervalS: 1, delayS: 0 }],
+    [{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }],
+  ];
+  assert.deepEqual(levelEnemyIds(makeLevel({ enemyIds: null, waves })), ['e', 'f']);
+  assert.deepEqual(levelEnemyIds(makeLevel({ enemyIds: undefined, waves })), ['e', 'f']);
+  assert.deepEqual(levelEnemyIds({ enemyIds: null, waves: null }), []);
+});
+
+test('validateLevel drops a group whose guest is not on the guest list', () => {
+  const level = makeLevel({
+    enemyIds: ['e'],
+    waves: [[
+      { enemyId: 'e', count: 1, intervalS: 1, delayS: 0 },
+      { enemyId: 'f', count: 1, intervalS: 1, delayS: 0 },
+    ]],
+  });
+  const { level: out, errors } = validateLevel(level, catalog);
+  assert.deepEqual(out.waves, [[{ enemyId: 'e', count: 1, intervalS: 1, delayS: 0 }]]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /guest list/);
+});
+
+test('validateLevel is fatal when the guest list is empty', () => {
+  const { level: out, errors } = validateLevel(makeLevel({ enemyIds: [] }), catalog);
+  assert.equal(out, null);
+  assert.ok(errors.some(e => /no guests/.test(e)), errors.join('; '));
+});
+
+test('validateLevel derives enemyIds for legacy levels', () => {
+  const legacy = makeLevel();
+  delete legacy.enemyIds;
+  const { level: out, errors } = validateLevel(legacy, catalog);
+  assert.deepEqual(out.enemyIds, ['e']);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(validateLevel(makeLevel({ enemyIds: null }), catalog).level.enemyIds, ['e']);
 });

@@ -7,11 +7,12 @@ const data = {
     id: 'wine-tasting', name: "Robin's Wine Tasting", description: 'Distracts', sprite: 'wine',
     cost: 50, range: 2.5, damage: 0, fireRate: 1,
     effect: 'distract', effectStrength: 0.5, effectDuration: 3,
-    upgrades: [{ cost: 40, range: 3 }],
+    upgrades: [{ cost: 40, range: 3 }], fallbackSprite: '🍷',
   }],
   enemies: [{
     id: 'recruiter', name: 'Recruiter', description: "Won't leave", sprite: 'rec',
     hp: 30, speed: 1.2, reward: 10, wineDamage: 1,
+    quotes: ["Let's talk"], immuneTo: ['distract', 'lure'], fallbackSprite: '🕴️',
   }],
   levels: [{
     id: 'level-1', name: 'One', sortOrder: 1, published: true, cols: 3, rows: 3,
@@ -19,6 +20,7 @@ const data = {
     path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }],
     blocked: [], weaponIds: ['wine-tasting', "o'clock"], startingCorks: 100, startingWine: 5,
     waves: [[{ enemyId: 'recruiter', count: 2, intervalS: 1, delayS: 0 }]],
+    enemyIds: ['recruiter'], barSprite: '🍻',
   }],
 };
 
@@ -41,9 +43,9 @@ test('toSeedSql upserts every row on id with snake_case columns', () => {
   assert.equal(inserts.length, 3);
   assert.equal((sql.match(/on conflict \(id\) do update set/g) ?? []).length, 3);
 
-  assert.match(sql, /insert into public\.weapons \(id, name, description, sprite, cost, range, damage, fire_rate, effect, effect_strength, effect_duration, upgrades\)/);
-  assert.match(sql, /insert into public\.enemies \([^)]*wine_damage\)/);
-  assert.match(sql, /insert into public\.levels \(id, name, sort_order, published, cols, rows, start, "end", path, blocked, weapon_ids, starting_corks, starting_wine, waves\)/);
+  assert.match(sql, /insert into public\.weapons \(id, name, description, sprite, cost, range, damage, fire_rate, effect, effect_strength, effect_duration, upgrades, fallback_sprite\)/);
+  assert.match(sql, /insert into public\.enemies \([^)]*wine_damage, quotes, immune_to, fallback_sprite\)/);
+  assert.match(sql, /insert into public\.levels \(id, name, sort_order, published, cols, rows, start, "end", path, blocked, weapon_ids, starting_corks, starting_wine, waves, enemy_ids, bar_sprite\)/);
   assert.match(sql, /fire_rate = excluded\.fire_rate/);
   assert.match(sql, /"end" = excluded\."end"/);
   assert.doesNotMatch(sql, /id = excluded\.id/);
@@ -59,11 +61,32 @@ test('toSeedSql escapes quotes and writes jsonb and text[] literals', () => {
   assert.ok(sql.includes(`'{"x":0,"y":0}'::jsonb`));
   // empty jsonb arrays (blocked: []) must stay jsonb, not text[]
   assert.ok(sql.includes(`'[]'::jsonb`));
-  assert.doesNotMatch(sql, /array\[\]::text\[\]/);
+  const levelSql = sql.slice(sql.indexOf('insert into public.levels'));
+  assert.doesNotMatch(levelSql, /array\[\]::text\[\]/);
 });
 
 test('toSeedSql inserts weapons and enemies before levels', () => {
   const sql = toSeedSql(data);
   assert.ok(sql.indexOf('public.weapons') < sql.indexOf('public.levels'));
   assert.ok(sql.indexOf('public.enemies') < sql.indexOf('public.levels'));
+});
+
+test('toSeedSql writes quotes as jsonb and immune_to / enemy_ids as text[]', () => {
+  const sql = toSeedSql(data);
+  assert.ok(sql.includes(`'["Let''s talk"]'::jsonb`));
+  assert.ok(sql.includes("array['distract', 'lure']::text[]"));
+  assert.ok(sql.includes("array['recruiter']::text[]"));
+  assert.ok(sql.includes("'🍷'"));
+  assert.ok(sql.includes("'🍻'"));
+});
+
+test('toSeedSql writes null enemy_ids and default fallback/bar sprites for legacy objects', () => {
+  const sql = toSeedSql({
+    weapons: [{ ...data.weapons[0], sprite: 'https://x.test/w.png', fallbackSprite: undefined }],
+    enemies: [{ ...data.enemies[0], quotes: undefined, immuneTo: undefined, fallbackSprite: undefined }],
+    levels: [{ ...data.levels[0], enemyIds: undefined, barSprite: undefined }],
+  });
+  assert.ok(sql.includes("'❔'"));
+  assert.match(sql, /'\[\]'::jsonb, array\[\]::text\[\], 'rec'\)/);
+  assert.match(sql, /, null, '🍻'\)/);
 });
