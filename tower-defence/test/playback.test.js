@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPlayback, scaleMs, STEP_MS, FIRE_MS, OPEN_MS, FAST_FACTOR } from '../game/playback.js';
+import { planPlayback, scaleMs, STEP_MS, FIRE_MS, OPEN_MS, FAST_FACTOR, WALK_CAP_MS, MIN_STEP_MS } from '../game/playback.js';
 
 const ev = (type, round, extra = {}) => ({ type, round, ...extra });
 
@@ -59,4 +59,22 @@ test('playback: beats without anything to watch take no time; no events, no beat
   const beats = planPlayback([ev('effect', 1, { id: 1, kind: 'stall', turns: 1 }), ev('won', 2)]);
   assert.deepEqual(beats.map((b) => b.ms), [0, 0]);
   assert.deepEqual(planPlayback([]), []);
+});
+
+test('playback: long walks get shorter steps, the walk stays within the cap', () => {
+  const walk = (n) => Array.from({ length: n }, (_, i) => ev('step', i + 1, { id: 1, from: i, to: i + 1 }));
+  const short = planPlayback(walk(3));
+  assert.ok(short.every((b) => b.ms === STEP_MS && b.stepMs === STEP_MS), 'short walks keep 120 ms steps');
+  for (const n of [6, 10, 16]) {
+    const beats = planPlayback(walk(n));
+    const total = beats.reduce((t, b) => t + b.ms, 0);
+    assert.ok(total <= WALK_CAP_MS, `${n} steps take ${total} ms`);
+    assert.ok(beats.every((b) => b.stepMs === b.ms && b.ms >= MIN_STEP_MS && b.ms < STEP_MS));
+  }
+  // Fast-forward scales the shortened steps too.
+  const fast = planPlayback(walk(10), { fast: true });
+  assert.equal(fast[0].stepMs, scaleMs(Math.floor(WALK_CAP_MS / 10), true));
+  // Several guests stepping in the same round count as one round of walking.
+  const crowd = [...walk(4), ...walk(4).map((e) => ({ ...e, id: 2 }))];
+  assert.ok(planPlayback(crowd).every((b) => b.ms === STEP_MS));
 });

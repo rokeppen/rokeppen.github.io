@@ -58,8 +58,10 @@ const BUBBLE_MS = 2500;    // a quote bubble stays this long (or until its guest
 const MAX_BUBBLES = 3;
 const MAX_FLYING_CAPS = 6;
 const SQUASH_MS = 60;      // half of the 120 ms squash when a tower fires
-// Guests sharing a tile stand a little apart (pixels), by spawn order.
-const SHARE_OFFSETS = [[-9, -5], [9, 5], [9, -6], [-9, 6], [0, -9], [0, 9]];
+// Guests sharing a tile stand a little apart (pixels), by spawn order. From CROWD guests on
+// one tile on, the rest stack in the middle and the tile gets a "×N" count pill.
+const SHARE_OFFSETS = [[-9, -5], [9, 5], [9, -6], [-9, 6]];
+const CROWD = SHARE_OFFSETS.length + 1;
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -94,6 +96,7 @@ export class GameScene extends Phaser.Scene {
     this.hoverWeaponId = null;
     this.hoverTile = null;
     this.fast = false;
+    this.stepMs = STEP_MS; // tile-to-tile tween of the current beat (shorter on long walks)
     this.busy = false;
     this.view = {};
     this.syncView();
@@ -105,6 +108,7 @@ export class GameScene extends Phaser.Scene {
     this.towerSprites = new Map(); // tower id -> { container, icon, pips, tier, punching }
     this.enemySprites = new Map(); // enemy instance id -> sprite record, see addEnemySprite
     this.stallSource = new Map();  // enemy instance id -> { effect, x, y } of the last distract/lure
+    this.tileMarks = new Map();    // "x,y" -> { container, sig } the per-tile "→n" / "×N" pills
     this.shots = [];
 
     this.layout = this.computeLayout(this.level);
@@ -357,7 +361,8 @@ export class GameScene extends Phaser.Scene {
   runPlayback(events) {
     this.busy = true;
     this.view.actions = 0;
-    for (const s of this.enemySprites.values()) s.badge.setVisible(false);
+    this.stepMs = STEP_MS;
+    for (const s of this.enemySprites.values()) s.preview = null; // previews hidden while moving
     const beats = planPlayback(events);
     let i = 0;
     const next = () => {
@@ -372,6 +377,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const beat = beats[i++];
+      if (beat.stepMs !== undefined) this.stepMs = beat.stepMs;
       for (const ev of beat.events) this.playEvent(ev);
       this.time.delayedCall(scaleMs(beat.ms, this.fast), next);
     };
@@ -466,14 +472,14 @@ export class GameScene extends Phaser.Scene {
     s.index = ev.to;
     s.walking = true;
     this.tweens.add({
-      targets: s.pos, x: to.x, y: to.y, duration: Math.max(1, scaleMs(STEP_MS, this.fast)), ease: 'Sine.easeInOut',
+      targets: s.pos, x: to.x, y: to.y, duration: Math.max(1, scaleMs(this.stepMs, this.fast)), ease: 'Sine.easeInOut',
       onComplete: () => { s.walking = false; },
     });
   }
 
   // The guest finishes its step onto the bar, then drains the kegs and leaves.
   renderLeak(ev) {
-    this.time.delayedCall(scaleMs(STEP_MS, this.fast), () => {
+    this.time.delayedCall(scaleMs(this.stepMs, this.fast), () => {
       this.view.wine = Math.max(0, this.view.wine - ev.wineDamage);
       this.removeEnemySprite(ev.id, false);
       const at = this.tileCentre(this.level.end.x, this.level.end.y);
@@ -526,13 +532,13 @@ export class GameScene extends Phaser.Scene {
     this.play('shot');
   }
 
-  // HP bars during playback (events carry no damage): the same rule as the engine, splash
-  // hits every guest within effectStrength tiles of the target. The state is authoritative
-  // again once the playback ends.
+  // HP bars during playback (events carry no damage). The engine's `hitIds` say who was hit
+  // when present; otherwise the same rule as the engine: splash hits every guest within
+  // effectStrength tiles of the target. The state is authoritative again once playback ends.
   applyShotDamage(ev, effect, stats) {
     if (!(stats.damage > 0)) return;
-    let ids = ev.targetIds;
-    if (effect === 'splash') {
+    let ids = Array.isArray(ev.hitIds) ? ev.hitIds : ev.targetIds;
+    if (effect === 'splash' && !Array.isArray(ev.hitIds)) {
       ids = [];
       const path = this.level.path;
       for (const [id, s] of this.enemySprites) {
@@ -702,8 +708,8 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedTowerId !== null && !alive.has(this.selectedTowerId)) this.selectTower(null);
   }
 
-  // A guest piece with its icon, HP bar, status emoji and the "→n" preview badge. Its
-  // logical position `pos` (pixels, tweened tile to tile) is separate from the container,
+  // A guest piece with its icon, HP bar and status emoji (its "→n" preview is drawn per
+  // tile by updateTileMarks, so guests sharing a tile show one pill). Its logical position `pos` (pixels, tweened tile to tile) is separate from the container,
   // which animateEnemies() places with the bob and the shared-tile offset.
   addEnemySprite(id, enemyId, index, popIn) {
     if (this.enemySprites.has(id)) return this.enemySprites.get(id);
@@ -715,15 +721,12 @@ export class GameScene extends Phaser.Scene {
     const hpBack = this.add.image(0, hpY, TEX.hpBack);
     const hpFill = this.add.image(-(HP_W + 2) / 2, hpY, TEX.hpHigh).setOrigin(0, 0.5);
     const status = this.emoji(17, faceY - 15, '', 16);
-    const badge = label(this, 16, 14, '', {
-      size: 12, bold: true, color: PALETTE.text, stroke: css(PALETTE.white), strokeThickness: 4,
-    }).setOrigin(0.5).setVisible(false);
     const pos = this.pathCentre(index);
-    const container = this.add.container(pos.x, pos.y, [base, ic, hpBack, hpFill, status, badge]);
+    const container = this.add.container(pos.x, pos.y, [base, ic, hpBack, hpFill, status]);
     const hp = def ? def.hp : 1;
     const s = {
-      container, icon: ic, hpFill, hpTex: TEX.hpHigh, status, badge, faceY, reward: def ? def.reward : 0,
-      pos, index, ox: 0, oy: 0, hp, maxHp: hp, walking: false, stalled: false, slowed: false,
+      container, icon: ic, hpFill, hpTex: TEX.hpHigh, status, faceY, reward: def ? def.reward : 0,
+      pos, index, ox: 0, oy: 0, hp, maxHp: hp, walking: false, stalled: false, slowed: false, preview: null,
       lastStatus: null, depth: null, phase: (id * 1.7) % (Math.PI * 2),
     };
     this.enemySprites.set(id, s);
@@ -752,7 +755,7 @@ export class GameScene extends Phaser.Scene {
       s.stalled = e.stalledTurns > 0;
       s.slowed = e.slowTurns > 0 && e.slowFactor < 1;
       if (!s.stalled) this.stallSource.delete(e.id);
-      s.badge.setText(`→${this.state.previewSteps(e)}`).setVisible(!this.state.over);
+      s.preview = this.state.over ? null : this.state.previewSteps(e);
     }
     for (const id of [...this.enemySprites.keys()]) {
       if (!alive.has(id)) this.removeEnemySprite(id, false);
@@ -762,7 +765,10 @@ export class GameScene extends Phaser.Scene {
   // Per frame: place each guest (tile position + shared-tile offset + bob while stepping),
   // depth by screen y, and the stalled wobble / pizza lean / slow snail.
   animateEnemies() {
-    if (this.enemySprites.size === 0) return;
+    if (this.enemySprites.size === 0) {
+      if (this.tileMarks.size > 0) this.updateTileMarks(new Map());
+      return;
+    }
     const now = this.time.now / 1000;
     const path = this.level.path;
     // Guests on the same tile, in spawn (id) order.
@@ -776,8 +782,9 @@ export class GameScene extends Phaser.Scene {
     const slot = new Map();
     for (const ids of groups.values()) {
       ids.sort((a, b) => a - b);
-      ids.forEach((id, i) => slot.set(id, ids.length > 1 ? SHARE_OFFSETS[i % SHARE_OFFSETS.length] : [0, 0]));
+      ids.forEach((id, i) => slot.set(id, ids.length > 1 && i < SHARE_OFFSETS.length ? SHARE_OFFSETS[i] : [0, 0]));
     }
+    this.updateTileMarks(groups);
     for (const [id, s] of this.enemySprites) {
       const [tx, ty] = slot.get(id);
       s.ox += (tx - s.ox) * 0.3;
@@ -818,6 +825,51 @@ export class GameScene extends Phaser.Scene {
         s.lastStatus = status;
         s.status.setText(status);
       }
+    }
+  }
+
+  // Per tile with guests: a "→n" pill (bottom right; "→1–3" when the guests there differ)
+  // in the player's turn, and a "×N" count pill (bottom left) when CROWD or more share it.
+  // Rebuilt only when a tile's text changes.
+  updateTileMarks(groups) {
+    const wanted = new Map();
+    for (const [k, ids] of groups) {
+      const previews = ids.map((id) => this.enemySprites.get(id).preview).filter((n) => n !== null);
+      let step = '';
+      if (previews.length > 0) {
+        const lo = Math.min(...previews);
+        const hi = Math.max(...previews);
+        step = lo === hi ? `→${lo}` : `→${lo}–${hi}`;
+      }
+      const count = ids.length >= CROWD ? `×${ids.length}` : '';
+      if (step || count) wanted.set(k, { step, count });
+    }
+    for (const [k, m] of this.tileMarks) {
+      const w = wanted.get(k);
+      if (!w || `${w.step}|${w.count}` !== m.sig) {
+        m.container.destroy();
+        this.tileMarks.delete(k);
+      }
+    }
+    for (const [k, w] of wanted) {
+      if (this.tileMarks.has(k)) continue;
+      const [x, y] = k.split(',').map(Number);
+      const c = this.tileCentre(x, y);
+      const parts = [];
+      const pill = (text, px, color) => {
+        const t = label(this, 0, 0, text, { size: 13, bold: true, color }).setOrigin(0.5);
+        const pw = snap(Math.max(30, t.width + 12));
+        const bg = addCard(this, 0, 0, pw, 20, 'card');
+        // Keep the pill inside the tile: anchor its outer edge.
+        const cx = px > 0 ? TILE / 2 - 2 - pw / 2 : -TILE / 2 + 2 + pw / 2;
+        bg.setPosition(cx, 20);
+        t.setPosition(cx, 20);
+        parts.push(bg, t);
+      };
+      if (w.step) pill(w.step, 1, PALETTE.text);
+      if (w.count) pill(w.count, -1, PALETTE.danger);
+      const container = this.add.container(c.x, c.y, parts).setDepth(DEPTH.enemies + 0.95);
+      this.tileMarks.set(k, { container, sig: `${w.step}|${w.count}`, ...w });
     }
   }
 
@@ -890,7 +942,6 @@ export class GameScene extends Phaser.Scene {
       s.container.destroy();
       return;
     }
-    s.badge.setVisible(false);
     this.tweens.add({
       targets: s.container, scale: 1.4, alpha: 0, duration: 180,
       onComplete: () => s.container.destroy(),

@@ -15,6 +15,7 @@ const MAX_PREVIEW = 5; // guest kinds shown in the next-wave card
 const ACTIONS_PER_TURN = 3; // the engine's per-turn action count (dots shown)
 
 export function nextWaveText(n) {
+  if (!Number.isFinite(n)) return 'Next wave soon';
   if (n === 0) return 'Next wave this turn';
   return `Next wave in ${n} turn${n === 1 ? '' : 's'}`;
 }
@@ -48,6 +49,7 @@ export class Hud {
       actions: this.makeCard('actions', PALETTE.goodText),
     };
     this.previewCard = { bg: null, w: 0, objects: [], width: 0 };
+    this.previewInfo = null; // { waveIndex, nextWaveIn } the next-wave card shows
 
     const kb = scene.input.keyboard;
     if (kb) {
@@ -116,10 +118,14 @@ export class Hud {
       c.sub.setText(`${v}/${ACTIONS_PER_TURN} actions`);
       dirty = true;
     });
-    // While the guests' turn plays back the state already holds the next turn: keep the old card.
+    // While the guests' turn plays back the state already holds the next turn: keep the old
+    // card, built from a snapshot taken in the player's turn (reflows during playback reuse it).
     if (!busy) {
       const show = !state.over && state.nextWaveIn !== null && state.waveIndex < state.totalWaves;
-      this.set('preview', show ? `${state.waveIndex}|${state.nextWaveIn}` : '', () => { dirty = true; });
+      this.set('preview', show ? `${state.waveIndex}|${state.nextWaveIn}` : '', () => {
+        this.previewInfo = show ? { waveIndex: state.waveIndex, nextWaveIn: state.nextWaveIn } : null;
+        dirty = true;
+      });
     }
     if (dirty) this.reflow();
 
@@ -183,15 +189,16 @@ export class Hud {
     p.objects = [];
     p.bg = null;
     p.width = 0;
-    if (!this.shown.preview) return;
+    const info = this.previewInfo;
+    if (!info) return;
     const { state, enemyDefs } = this.scene;
-    const wave = state.level.waves[state.waveIndex];
+    const wave = state.level.waves[info.waveIndex];
     if (!wave) return;
     const counts = new Map();
     for (const g of wave) counts.set(g.enemyId, (counts.get(g.enemyId) ?? 0) + g.count);
     const add = (o, bx) => { o.x = x + bx; o.setDepth(DEPTH + 1); p.objects.push(o); return o; };
     let bx = 12;
-    const head = add(label(this.scene, 0, this.mid - 2, nextWaveText(state.nextWaveIn), {
+    const head = add(label(this.scene, 0, this.mid - 2, nextWaveText(info.nextWaveIn), {
       size: 12, bold: true, color: PALETTE.text,
     }).setOrigin(0, 0.5), bx);
     bx += head.width + 8;
