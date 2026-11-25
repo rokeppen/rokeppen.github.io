@@ -286,3 +286,100 @@ for (const effect of ['lure', 'distract']) {
     assert.equal(s.phase, 'won');
   });
 }
+
+// --- immunity and quotes ---
+
+const distractW = { id: 'dis', name: 'Dis', cost: 10, range: 5, damage: 1, fireRate: 1,
+  effect: 'distract', effectStrength: 0, effectDuration: 3, upgrades: [] };
+const iceW = { id: 'ice2', name: 'Ice2', cost: 10, range: 5, damage: 1, fireRate: 1,
+  effect: 'slow', effectStrength: 0.5, effectDuration: 5, upgrades: [] };
+
+function stateWith(enemyDefs, weaponList, wave, opts) {
+  const level = makeLevel({ weaponIds: weaponList.map((w) => w.id), waves: [wave] });
+  return new GameState(level, { weapons: weaponList, enemies: enemyDefs }, opts);
+}
+
+test('immune-to-distract guest keeps moving, takes damage, stallImmuneUntil untouched', () => {
+  const defs = [{ ...enemies[0], hp: 100, immuneTo: ['distract'] }];
+  const s = stateWith(defs, [distractW], [{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]);
+  s.placeTower(2, 0, 'dis');
+  s.startNextWave();
+  s.tick(0.25);
+  const e = s.enemies[0];
+  assert.ok(e.hp < 100);
+  assert.equal(e.stallImmuneUntil, 0);
+  assert.equal(e.stallUntil, 0);
+  assert.ok(e.distance > 0.2);
+});
+
+test('immune-to-slow guest keeps slowFactor 1', () => {
+  const defs = [{ ...enemies[0], hp: 100, immuneTo: ['slow'] }];
+  const s = stateWith(defs, [iceW], [{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]);
+  s.placeTower(2, 0, 'ice2');
+  s.startNextWave();
+  s.tick(0.25);
+  assert.equal(s.enemies[0].slowFactor, 1);
+  assert.ok(s.enemies[0].hp < 100);
+});
+
+test('non-immune guest next to an immune one is still stalled by lure', () => {
+  const defs = [
+    { id: 'tough', name: 'T', hp: 100, speed: 1, reward: 1, wineDamage: 1, immuneTo: ['lure'] },
+    { id: 'soft', name: 'S', hp: 100, speed: 1, reward: 1, wineDamage: 1 },
+  ];
+  const s = stateWith(defs, [weapons[1]], [
+    { enemyId: 'tough', count: 1, intervalS: 1, delayS: 0 },
+    { enemyId: 'soft', count: 1, intervalS: 1, delayS: 0 },
+  ]);
+  s.placeTower(2, 0, 'pizza');
+  s.startNextWave();
+  s.tick(0.1);
+  const tough = s.enemies.find((e) => e.enemyId === 'tough');
+  const soft = s.enemies.find((e) => e.enemyId === 'soft');
+  assert.ok(tough.stallUntil === 0 && tough.stallImmuneUntil === 0);
+  assert.ok(soft.stallUntil > s.time);
+});
+
+const quoted = { id: 'q', name: 'Q', hp: 1000, speed: 0.01, reward: 1, wineDamage: 1, quotes: ['hi', 'yo'] };
+const quoteWave = (count) => [{ enemyId: 'q', count, intervalS: 0, delayS: 0 }];
+const quotesOf = (s) => s.drainEvents().filter((e) => e.type === 'quote');
+
+test('rng 0: quoted guest emits one quote at spawn with text from its list', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(1), { rng: () => 0 });
+  s.startNextWave();
+  s.tick(0.1);
+  const qs = quotesOf(s);
+  assert.equal(qs.length, 1);
+  assert.equal(qs[0].enemyId, 'q');
+  assert.equal(qs[0].id, s.enemies[0].id);
+  assert.ok(quoted.quotes.includes(qs[0].text));
+});
+
+test('rng 0.99: no quotes', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(3), { rng: () => 0.99 });
+  s.startNextWave();
+  run(s, 5);
+  assert.equal(quotesOf(s).length, 0);
+});
+
+test('global gap: 5 simultaneous quoted guests give 1 quote in first 1.5 s', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(5), { rng: () => 0 });
+  s.startNextWave();
+  for (let i = 0; i < 5; i++) s.tick(0.25); // 1.25 s
+  assert.equal(quotesOf(s).length, 1);
+});
+
+test('max two quotes per guest, spaced by the gap', () => {
+  const s = stateWith([quoted], [weapons[0]], quoteWave(1), { rng: () => 0 });
+  s.startNextWave();
+  for (let i = 0; i < 40; i++) s.tick(0.25); // 10 s
+  assert.equal(quotesOf(s).length, 2);
+});
+
+test('guest with quotes: [] never speaks', () => {
+  const mute = { ...quoted, quotes: [] };
+  const s = stateWith([mute], [weapons[0]], quoteWave(3), { rng: () => 0 });
+  s.startNextWave();
+  run(s, 5);
+  assert.equal(quotesOf(s).length, 0);
+});

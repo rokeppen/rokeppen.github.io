@@ -6,9 +6,14 @@ import { weaponStats, upgradeCost } from './stats.js';
 const MAX_TICK = 0.25; // seconds simulated per tick() call at most
 const SUBSTEP = 0.05;
 const EPS = 1e-9;
+const QUOTE_GAP = 1.5; // seconds of game time between any two quotes
+const QUOTE_SPAWN_CHANCE = 0.35;
+const QUOTE_WALK_CHANCE = 0.02;
 
 export class GameState {
-  constructor(level, { weapons, enemies }) {
+  constructor(level, { weapons, enemies }, { rng = Math.random } = {}) {
+    this.rng = rng;
+    this.lastQuoteTime = -Infinity;
     this.level = level;
     this.weaponDefs = new Map(weapons.map((w) => [w.id, w]));
     this.enemyDefs = new Map(enemies.map((e) => [e.id, e]));
@@ -126,6 +131,7 @@ export class GameState {
     this.time += dt;
     if (this.phase === 'wave') this.spawn(dt);
     this.move(dt);
+    this.chatter();
     this.fire(dt);
     this.leak();
     this.updatePhase();
@@ -140,8 +146,11 @@ export class GameState {
       if (!def) continue;
       const id = this.nextEnemyId++;
       this.enemies.push({ id, enemyId, hp: def.hp, maxHp: def.hp, distance: 0,
-        stallUntil: 0, stallImmuneUntil: 0, slowUntil: 0, slowFactor: 1 });
+        stallUntil: 0, stallImmuneUntil: 0, slowUntil: 0, slowFactor: 1, quotesLeft: 2 });
       this.events.push({ type: 'spawn', id, enemyId });
+      if (hasQuotes(def) && this.quoteGapElapsed() && this.rng() < QUOTE_SPAWN_CHANCE) {
+        this.say(this.enemies[this.enemies.length - 1], def);
+      }
     }
   }
 
@@ -150,6 +159,27 @@ export class GameState {
       if (this.time >= e.slowUntil) e.slowFactor = 1;
       if (this.time < e.stallUntil) continue;
       e.distance += this.enemyDefs.get(e.enemyId).speed * e.slowFactor * dt;
+    }
+  }
+
+  quoteGapElapsed() {
+    return this.time - this.lastQuoteTime >= QUOTE_GAP - EPS;
+  }
+
+  say(e, def) {
+    const text = def.quotes[Math.floor(this.rng() * def.quotes.length)];
+    e.quotesLeft -= 1;
+    this.lastQuoteTime = this.time;
+    this.events.push({ type: 'quote', id: e.id, enemyId: e.enemyId, text });
+  }
+
+  // Walking guests may mutter a second line; globally rate-limited.
+  chatter() {
+    for (const e of this.enemies) {
+      if (e.quotesLeft <= 0 || this.time < e.stallUntil) continue;
+      const def = this.enemyDefs.get(e.enemyId);
+      if (!hasQuotes(def) || !this.quoteGapElapsed()) continue;
+      if (this.rng() < QUOTE_WALK_CHANCE) this.say(e, def);
     }
   }
 
@@ -177,6 +207,7 @@ export class GameState {
       }
       const until = this.time + (weapon.effectDuration || 0);
       for (const e of targets) {
+        if (this.isImmune(e, weapon.effect)) continue;
         if (weapon.effect === 'slow') {
           e.slowFactor = 1 - stats.effectStrength;
           e.slowUntil = until;
@@ -197,6 +228,10 @@ export class GameState {
     if (duration <= 0 || this.time < e.stallUntil || this.time < e.stallImmuneUntil) return;
     e.stallUntil = this.time + duration;
     e.stallImmuneUntil = e.stallUntil + 0.5 * duration;
+  }
+
+  isImmune(e, effect) {
+    return (this.enemyDefs.get(e.enemyId).immuneTo || []).includes(effect);
   }
 
   payKills() {
@@ -245,6 +280,10 @@ export class GameState {
 // Corks returned when selling a tower: half of everything spent on it, rounded down.
 export function sellRefund(tower) {
   return Math.floor(tower.spent / 2);
+}
+
+function hasQuotes(def) {
+  return Array.isArray(def.quotes) && def.quotes.length > 0;
 }
 
 function key(p) {
