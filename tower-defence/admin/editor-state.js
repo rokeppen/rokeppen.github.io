@@ -179,7 +179,7 @@ function setupProblems(level, catalog) {
       if (!enemyIds.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' no longer exists — remove that group.`);
       else if (!guests.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' is not on the guest list — list the guest or remove that group.`);
       if (!isInt(g.count, 1)) errors.push(`${at}: count must be a whole number of at least 1.`);
-      if (!isNum(g.intervalS) || g.intervalS <= 0) errors.push(`${at}: interval must be more than 0 seconds.`);
+      if (!isNum(g.intervalS) || g.intervalS <= 0) errors.push(`${at}: interval must be more than 0 turns.`);
       if (!isNum(g.delayS) || g.delayS < 0) errors.push(`${at}: delay can't be negative.`);
     });
   });

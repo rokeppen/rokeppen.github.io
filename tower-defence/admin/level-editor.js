@@ -809,7 +809,7 @@ function waveCard(wave, wi, count, enemies) {
     groups.length
       ? h('table', { className: 'le-groups' },
         h('thead', {}, h('tr', {},
-          ['Guest', 'Count', 'Interval (s)', 'Delay (s)', ''].map((t) => h('th', { textContent: t })))),
+          ['Guest', 'Count', 'Interval (turns)', 'Delay (turns)', ''].map((t) => h('th', { textContent: t })))),
         h('tbody', {}, groups.map((g, gi) => groupRow(g, wi, gi, enemies, refreshSummary, structural))))
       : h('p', { className: 'muted' }, 'This wave has no guests.'),
     h('button', {
@@ -843,8 +843,8 @@ function groupRow(g, wi, gi, enemies, refreshSummary, structural) {
   return h('tr', {},
     h('td', {}, select),
     num('count', 'count', { min: 1, step: 1 }),
-    num('intervalS', 'seconds between guests', { min: 0.1, step: 0.1 }),
-    num('delayS', 'delay before the group starts (s)', { min: 0, step: 0.5 }),
+    num('intervalS', 'turns between guests', { min: 0.1, step: 0.1 }),
+    num('delayS', 'delay before the group starts (turns)', { min: 0, step: 0.5 }),
     h('td', {}, remove));
 }
 
