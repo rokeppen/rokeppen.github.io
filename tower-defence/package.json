@@ -1,0 +1,9 @@
+{
+  "name": "friday-drinks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "seed": "node scripts/make-seed.js"
+  }
+}

@@ -5,7 +5,7 @@ window.onload = function() {
 };
 
 function getWords() {
-    fetch("/words.csv").then(r => r.text()).then(text => {
+    fetch("words.csv").then(r => r.text()).then(text => {
         let lines = text.trim().split("\n");
         shuffleArray(lines);
         lines.forEach(line => {

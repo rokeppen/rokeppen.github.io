@@ -1,0 +1,107 @@
+* {
+    box-sizing: border-box;
+    font-family: system-ui, sans-serif;
+}
+
+body {
+    margin: 0;
+    background: linear-gradient(135deg, #ffffff, #74b9ff);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.app {
+    width: 100%;
+    padding: 16px;
+}
+
+.banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.banner-icon {
+    width: 40px;
+    height: 40px;
+}
+
+.banner-title {
+    font-size: 1.7rem;
+    font-weight: bold;
+    margin: 0;
+}
+
+.card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 480px;
+    margin: auto;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+}
+
+#questionText {
+    margin-bottom: 20px;
+    font-size: 1.4rem;
+    text-align: center;
+}
+
+#optionsContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.option-btn {
+    display: flex;
+    align-items: center;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 1rem;
+    background: #f3f3f3;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.option-btn:hover {
+    background: #e6e6e6;
+}
+
+.option-btn:active {
+    transform: scale(0.98);
+}
+
+.option-key {
+    background: #1d2671;
+    color: #fff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-right: 12px;
+    font-weight: bold;
+    min-width: 32px;
+    text-align: center;
+}
+
+.option-btn.wrong {
+    background: #ef7b7b;
+}
+
+.answer-message {
+    font-size: 1.5rem;
+    font-weight: bold;
+    text-align: center;
+    padding: 40px 20px;
+    color: #1d2671;
+}
+
+img {
+    width: 100%;
+    margin-top: 5px;
+    height: auto;
+}
