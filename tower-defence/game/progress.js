@@ -1,5 +1,5 @@
 // Best result per level, remembered in localStorage (wrapped: storage may be blocked).
-const STORAGE_KEY = 'friday-drinks:stars';
+const STORAGE_KEY = 'friday-drinks:v2:stars';
 
 // 3 stars: barely touched the kegs (internal name: wine); 1 star: survived.
 export function starsFor(wine, startingWine) {
@@ -28,7 +28,7 @@ export function recordStars(levelId, stars) {
 }
 
 // Best wave reached per level: one key per level id, holding { wave, cleared }.
-const BEST_PREFIX = 'friday-drinks:best:';
+const BEST_PREFIX = 'friday-drinks:v2:best:';
 
 export function loadBest(levelId) {
   try {

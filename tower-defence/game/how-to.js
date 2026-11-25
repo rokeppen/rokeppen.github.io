@@ -22,13 +22,14 @@ function immuneRow(enemies) {
 export function howToPlay(data) {
   return [
     ['🗺️', 'Place office weapons on the floor beside the carpet, never on it.'],
-    ['🚶', 'Uninvited guests walk the carpet to the beer bar 🍻 and drain your kegs 🍺.'],
-    ['🧢', 'Every guest escorted out pays bottle caps. Spend them on more weapons.'],
+    ['🔄', 'Each turn you get 3 actions: build, upgrade or sell. End turn ▶ pays 10 🧢 per unused action.'],
+    ['🚶', 'Then the guests walk the carpet tile by tile, up to their speed, toward the beer bar 🍻 and drain your kegs 🍺.'],
+    ['🎯', 'Your weapons fire as guests pass, after every step. Guests escorted out pay bottle caps 🧢.'],
     ['⬆️', 'Click a placed weapon to upgrade it, or sell it for half its cost.'],
     [{ weapon: 'cafe', fallback: '🪑' }, 'Café: a cosy pub corner no guest can resist. Distracts one guest at a time.'],
     immuneRow(data?.enemies),
     [{ weapon: 'pizza-hut', fallback: '🍕' }, 'Pizza Hut Delivery: free pizza lures the whole crowd and stalls them.'],
-    ['🔔', 'Nexios Victory Bell: ring it once per level to clear the room. Pays caps too!'],
+    ['🔔', 'Nexios Victory Bell: free, once per level. Clears the room and pays caps too!'],
     [{ weapon: 'out-of-office', fallback: '📧' }, 'Out-of-Office, Coffee Machine (slows) and HR Talk (splash) do the rest.'],
   ].filter(Boolean);
 }

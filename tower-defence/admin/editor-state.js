@@ -179,11 +179,25 @@ function setupProblems(level, catalog) {
       if (!enemyIds.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' no longer exists — remove that group.`);
       else if (!guests.has(g.enemyId)) errors.push(`${w}: guest '${g.enemyId}' is not on the guest list — list the guest or remove that group.`);
       if (!isInt(g.count, 1)) errors.push(`${at}: count must be a whole number of at least 1.`);
-      if (!isNum(g.intervalS) || g.intervalS <= 0) errors.push(`${at}: interval must be more than 0 seconds.`);
+      if (!isNum(g.intervalS) || g.intervalS <= 0) errors.push(`${at}: interval must be more than 0 turns.`);
       if (!isNum(g.delayS) || g.delayS < 0) errors.push(`${at}: delay can't be negative.`);
     });
   });
   return errors;
+}
+
+// Advisory only (never blocks saving): groups that spawn faster than 0.2 turns apart.
+export function spawnWarnings(level) {
+  const out = [];
+  (Array.isArray(level.waves) ? level.waves : []).forEach((wave, wi) => {
+    if (!Array.isArray(wave)) return;
+    wave.forEach((g, gi) => {
+      if (!g || !isNum(g.intervalS) || g.intervalS <= 0 || g.intervalS >= 0.2) return;
+      const per = Math.ceil(1 / g.intervalS);
+      out.push(`Wave ${wi + 1}, group ${gi + 1}: very fast spawns: up to ${per} guests per turn at the door.`);
+    });
+  });
+  return out;
 }
 
 // ok only when nothing is wrong, so what is saved is exactly what the game plays.

@@ -1,5 +1,5 @@
 // Win/lose overlay, launched on top of a finished GameScene.
-// Data: { levelId, won, wine, startingWine, corks, wave, totalWaves, kills }
+// Data: { levelId, won, wine, startingWine, corks, wave, totalWaves, kills, turns, reason }
 // (wine = kegs left, corks = bottle caps; internal names.)
 // Keys: R / Enter retry (Enter = next round after a win), Esc levels.
 import { PALETTE } from '../theme.js';
@@ -36,12 +36,17 @@ export class EndScene extends Phaser.Scene {
     const ph = 380;
     const bg = addCard(this, 0, 0, pw, ph, 'card');
     const icon = label(this, 0, -ph / 2 + 64, r.won ? '🍻' : '🍺', { size: 64 }).setOrigin(0.5);
-    const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!' : 'The kegs ran dry…', {
+    const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!'
+      : r.reason === 'too-long' ? 'Last orders! The party ran too long' : 'The kegs ran dry…', {
       size: 34, bold: true, color: r.won ? PALETTE.goodText : PALETTE.danger,
     }).setOrigin(0.5);
+    const turns = Number.isFinite(r.turns) ? ` in ${r.turns} turn${r.turns === 1 ? '' : 's'}` : '';
+    const lostWhy = r.reason === 'too-long'
+      ? `the party ran too long (wave ${r.wave}/${r.totalWaves})`
+      : `the guests drained the bar on wave ${r.wave}/${r.totalWaves}`;
     const sub = label(this, 0, -ph / 2 + 174, r.won
-      ? `${level?.name ?? 'Level'} cleared`
-      : `${level?.name ?? 'Level'} · the guests drained the bar on wave ${r.wave}/${r.totalWaves}`, {
+      ? `${level?.name ?? 'Level'} cleared${turns}`
+      : `${level?.name ?? 'Level'} · ${lostWhy}`, {
       size: 17, color: PALETTE.text,
     }).setOrigin(0.5);
     if (sub.width > pw - 40) sub.setScale((pw - 40) / sub.width);
@@ -49,7 +54,7 @@ export class EndScene extends Phaser.Scene {
       size: 26, bold: true, color: PALETTE.capsText,
     }).setOrigin(0.5);
     const stats = label(this, 0, -ph / 2 + 244,
-      `🍺 ${r.wine}/${r.startingWine} kegs left    🧢 ${r.corks} caps    🚪 ${r.kills} guests escorted out`, {
+      `🍺 ${r.wine}/${r.startingWine} kegs left    🧢 ${r.corks} caps    🚪 ${r.kills} escorted out    🔄 ${r.turns ?? '?'} turns`, {
         size: 15, color: PALETTE.muted,
       }).setOrigin(0.5);
     if (stats.width > pw - 40) stats.setScale((pw - 40) / stats.width);

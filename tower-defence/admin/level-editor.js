@@ -6,7 +6,7 @@ import {
   newLevel, duplicateLevel, applyTool, extendPath, toggleBlocked, eraseTile,
   resizeLevel, canSave, MIN_SIZE, MAX_SIZE, prepareForEditor,
   setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup, waveSummary,
-  setGuests, guestWaves, applyGenerated, DEFAULT_BAR_SPRITE,
+  setGuests, guestWaves, applyGenerated, DEFAULT_BAR_SPRITE, spawnWarnings,
 } from './editor-state.js';
 import { SIZES, DIFFICULTIES, canGenerate, generateLevel, randomSeed } from '../shared/generator.js';
 import { isUrl } from '../shared/mapping.js';
@@ -418,7 +418,8 @@ function detailsSection() {
 
 function saveSection() {
   const level = ed.draft;
-  const { ok, errors } = canSave(level, catalog());
+  const { ok, errors: problems } = canSave(level, catalog());
+  const errors = [...problems, ...spawnWarnings(level)];
   const dirty = isDirty();
   const saved = isSaved(level.id);
   const saveBtn = h('button', {
@@ -809,7 +810,7 @@ function waveCard(wave, wi, count, enemies) {
     groups.length
       ? h('table', { className: 'le-groups' },
         h('thead', {}, h('tr', {},
-          ['Guest', 'Count', 'Interval (s)', 'Delay (s)', ''].map((t) => h('th', { textContent: t })))),
+          ['Guest', 'Count', 'Interval (turns)', 'Delay (turns)', ''].map((t) => h('th', { textContent: t })))),
         h('tbody', {}, groups.map((g, gi) => groupRow(g, wi, gi, enemies, refreshSummary, structural))))
       : h('p', { className: 'muted' }, 'This wave has no guests.'),
     h('button', {
@@ -843,8 +844,8 @@ function groupRow(g, wi, gi, enemies, refreshSummary, structural) {
   return h('tr', {},
     h('td', {}, select),
     num('count', 'count', { min: 1, step: 1 }),
-    num('intervalS', 'seconds between guests', { min: 0.1, step: 0.1 }),
-    num('delayS', 'delay before the group starts (s)', { min: 0, step: 0.5 }),
+    num('intervalS', 'turns between guests', { min: 0.1, step: 0.1 }),
+    num('delayS', 'delay before the group starts (turns)', { min: 0, step: 0.5 }),
     h('td', {}, remove));
 }
 

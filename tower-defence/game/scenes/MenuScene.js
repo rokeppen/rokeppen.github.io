@@ -104,8 +104,9 @@ export class MenuScene extends Phaser.Scene {
   bestText(level) {
     const total = Array.isArray(level.waves) ? level.waves.length : 0;
     const best = loadBest(level.id);
+    const reached = best ? Math.min(best.wave, total) : 0;
     if (best && best.cleared) return `🏆 Bar defended · all ${total} waves`;
-    if (best && best.wave > 0) return `Best: held the bar to wave ${best.wave} of ${total}`;
+    if (best && reached > 0) return `Best: held the bar to wave ${reached} of ${total}`;
     return `Not played yet · ${total} wave${total === 1 ? '' : 's'}`;
   }
 
@@ -160,7 +161,7 @@ export class MenuScene extends Phaser.Scene {
     const cx = MENU_WIDTH / 2;
     const cy = MENU_HEIGHT / 2;
     const pw = 840;
-    const ph = 590;
+    const ph = 620;
     // Full-screen interactive dim: swallows clicks meant for the cards underneath.
     const dim = this.add.rectangle(0, 0, MENU_WIDTH, MENU_HEIGHT, PALETTE.overlay, 0.45)
       .setOrigin(0).setDepth(OVERLAY_DEPTH).setInteractive();
@@ -177,8 +178,11 @@ export class MenuScene extends Phaser.Scene {
       size: 16, color: PALETTE.muted,
     }).setOrigin(0.5).setDepth(OVERLAY_DEPTH));
     const left = cx - pw / 2 + 36;
-    howToPlay(this.data_).forEach(([spec, text], i) => {
-      const y = cy - ph / 2 + 128 + i * 44;
+    const rows = howToPlay(this.data_);
+    // Rows share the space between the subtitle and the button (at most 44 px apart).
+    const rowGap = Math.min(44, (ph - 128 - 110) / Math.max(1, rows.length - 1));
+    rows.forEach(([spec, text], i) => {
+      const y = cy - ph / 2 + 128 + i * rowGap;
       objects.push(addCard(this, left + 18, y, 36, 36, 'icon').setDepth(OVERLAY_DEPTH));
       objects.push(this.howToIcon(spec, left + 18, y).setDepth(OVERLAY_DEPTH));
       const t = label(this, left + 50, y, text, { size: 16 }).setOrigin(0, 0.5).setDepth(OVERLAY_DEPTH);

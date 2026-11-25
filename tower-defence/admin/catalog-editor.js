@@ -335,13 +335,13 @@ function weaponFields(draft, ctx) {
     field(draft, 'cost', 'Cost (caps 🧢)', 'number', { min: 1, step: 1 }).wrap,
     field(draft, 'range', 'Range (tiles)', 'number', { min: 0 }).wrap,
     field(draft, 'damage', 'Damage', 'number', { min: 0 }).wrap,
-    field(draft, 'fireRate', 'Fire rate (shots/s)', 'number', { min: 0 }).wrap,
+    field(draft, 'fireRate', 'Fire rate (shots/turn)', 'number', { min: 0 }).wrap,
   ];
 
   const effectSelect = h('select', {}, ...EFFECTS.map((v) => h('option', { value: v, textContent: v })));
   effectSelect.value = draft.effect;
   const strength = field(draft, 'effectStrength', 'Effect strength', 'number', { min: 0 });
-  const duration = field(draft, 'effectDuration', 'Effect duration (s)', 'number', { min: 0 });
+  const duration = field(draft, 'effectDuration', 'Effect duration (turns)', 'number', { min: 0 });
   const effectBox = h('div', { className: 'effect-fields' }, strength.wrap, duration.wrap);
   const STRENGTH_LABELS = {
     slow: 'Slow strength (0–1: 0.4 = 40% slower)',
@@ -349,7 +349,7 @@ function weaponFields(draft, ctx) {
     distract: 'Effect strength (unused by distract)',
     lure: 'Effect strength (unused by lure)',
   };
-  // Splash hits once, so it has no duration; slow/distract/lure last effectDuration seconds.
+  // Splash hits once, so it has no duration; slow/distract/lure last effectDuration turns.
   const syncEffect = () => {
     effectBox.hidden = draft.effect === 'none';
     duration.wrap.hidden = !TIMED_EFFECTS.includes(draft.effect);
@@ -428,7 +428,7 @@ export function mountEnemies(el) {
       field(draft, 'description', 'Description', 'textarea').wrap,
       ...spriteFields(draft, ctx, '👤'),
       field(draft, 'hp', 'HP', 'number', { min: 0 }).wrap,
-      field(draft, 'speed', 'Speed (tiles/s)', 'number', { min: 0 }).wrap,
+      field(draft, 'speed', 'Speed (tiles/turn)', 'number', { min: 0 }).wrap,
       field(draft, 'reward', 'Reward (caps 🧢)', 'number', { min: 1, step: 1 }).wrap,
       field(draft, 'wineDamage', 'Kegs drained per guest (🍺 lost when it reaches the beer bar)', 'number', { min: 1, step: 1 }).wrap,
       quotesField(draft),

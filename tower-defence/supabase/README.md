@@ -61,3 +61,22 @@ For a project that was set up before the beer-party release (it already ran `sch
 
 Regenerate the files after changing `fallback-data.json`: `npm run seed`, then
 `npm run upgrade-sql` (both from `tower-defence/`).
+
+## Turn-based release
+
+The game is now turn-based, and the bundled starter rows carry turn-tuned numbers. Re-run
+`upgrade-beer-party.sql` (or `seed.sql`) once so the database gets them; otherwise the live
+game keeps the old real-time numbers and plays games of roughly 75 / 150 turns instead of
+the intended length.
+
+> **Warning: this resets the starter rows again, including Published and Order** (same
+> list as in the beer-party warning above). Click **Export JSON** in the admin first and
+> re-apply your changes afterwards. Rows with other ids are not touched.
+
+Your own (custom) rows are not converted. They are now read as **tiles per turn** (guest
+speed) and **shots per turn** (weapon fire rate), and durations and intervals are in
+**turns**. Rough guide: guest speeds about 1-4.5 tiles/turn, spawn intervals of at least
+0.2 turns (the editor warns below that), effect durations 1-3 turns.
+
+Afterwards open `play.html` with the browser console open and check it logs
+`Game data loaded from db.`
