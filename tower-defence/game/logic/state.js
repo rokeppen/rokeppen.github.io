@@ -1,17 +1,17 @@
 // Framework-free turn engine. Phaser scenes only render this state and play back
 // the events that endTurn() returns.
 //
-// One round = the player's turn (up to 3 actions) + the guests' turn, which runs
+// One round = the player's turn (play at most one action card) + the guests' turn, which runs
 // inside endTurn(): wave progress, spawns, step and shot budgets, then resolution
 // rounds (round 0 fires only; each later round moves every guest with steps left one
 // tile, then every tower with shots left fires once). See the "Turn engine rules"
-// in docs/superpowers/specs/2026-11-25-turn-based-design.md.
+// in docs/superpowers/specs/2026-11-25-turn-based-design.md; the cards are in
+// docs/superpowers/specs/2026-11-25-cards-design.md. Cards are free: caps are only a score.
 import { buildSpawnTurns } from './waves.js';
+import { rollCard, startingHand, HAND_MAX } from './cards.js';
 import { weaponStats, upgradeCost } from './stats.js';
 
 const EPS = 1e-9;
-const ACTIONS_PER_TURN = 3;
-const ACTION_BONUS = 10; // caps per unused action
 const WAVE_GAP = 2; // guests' turns between clearing a wave and the next wave
 const MAX_TURNS = 500;
 const MIN_SPEED = 0.1;
@@ -35,19 +35,23 @@ export class GameState {
     this.turn = 1;
     this.phase = 'player';
     this.endReason = null;
-    this.actionsLeft = ACTIONS_PER_TURN;
     this.waveIndex = 0;
     this.totalWaves = level.waves.length;
     this.nextWaveIn = this.totalWaves > 0 ? 0 : null;
     this.towers = [];
     this.enemies = [];
-    this.bellUsed = false;
 
     this.waveRunning = false;
     this.waveTurn = 0; // guests' turns since the running wave started (0-based)
     this.spawnQueue = [];
     this.nextTowerId = 1;
     this.nextEnemyId = 1;
+
+    this.levelWeapons = level.weaponIds.map((id) => this.weaponDefs.get(id)).filter(Boolean);
+    this.nextCardId = 1;
+    this.cardPlayedThisTurn = false;
+    this.hand = this.levelWeapons.length > 0
+      ? startingHand(rng, this.levelWeapons).map((c) => this.withId(c)) : [];
   }
 
   get over() {
@@ -63,58 +67,101 @@ export class GameState {
     return 'buildable';
   }
 
-  // --- player actions ---
+  // --- cards ---
+
+  withId(card) {
+    return { id: this.nextCardId++, ...card };
+  }
+
+  // Plays one card from the hand: at most one per player turn. `target` is { x, y } for
+  // build and { towerId } for upgrade and sell; the bell takes none. A refusal changes nothing.
+  playCard(cardId, target = {}) {
+    if (this.over) return { ok: false, reason: 'game-over' };
+    if (this.cardPlayedThisTurn) return { ok: false, reason: 'card-played' };
+    const card = this.hand.find((c) => c.id === cardId);
+    if (!card) return { ok: false, reason: 'unknown-card' };
+    const tower = target.towerId !== undefined ? this.towers.find((t) => t.id === target.towerId) : null;
+    let result;
+    if (card.kind === 'build') {
+      if (target.x === undefined || target.y === undefined) return { ok: false, reason: 'no-target' };
+      result = this.placeTower(target.x, target.y, card.weaponId);
+    } else if (card.kind === 'upgrade') {
+      if (!tower) return { ok: false, reason: 'no-target' };
+      if (tower.weaponId !== card.weaponId) return { ok: false, reason: 'wrong-weapon' };
+      result = this.upgradeTower(tower.id);
+    } else if (card.kind === 'sell') {
+      if (!tower) return { ok: false, reason: 'no-target' };
+      result = this.sellTower(tower.id);
+    } else {
+      if (this.enemies.length === 0) return { ok: false, reason: 'no-target' };
+      result = this.ringBell();
+    }
+    if (!result.ok) return result;
+    this.hand = this.hand.filter((c) => c !== card);
+    this.cardPlayedThisTurn = true;
+    return result;
+  }
+
+  // Whether the card could be played now (some valid target exists).
+  cardPlayable(card) {
+    if (this.over || this.cardPlayedThisTurn) return false;
+    if (card.kind === 'build') return this.hasBuildableTile();
+    if (card.kind === 'upgrade') {
+      return this.towers.some((t) => t.weaponId === card.weaponId
+        && upgradeCost(this.weaponDefs.get(t.weaponId), t.tier) !== null);
+    }
+    if (card.kind === 'sell') return this.towers.length > 0;
+    return this.enemies.length > 0;
+  }
+
+  hasBuildableTile() {
+    for (let y = 0; y < this.level.rows; y++) {
+      for (let x = 0; x < this.level.cols; x++) if (this.tileType(x, y) === 'buildable') return true;
+    }
+    return false;
+  }
+
+  // --- board changes (cards call these; free, no turn limit) ---
 
   placeTower(x, y, weaponId) {
-    const refused = this.actionRefusal();
-    if (refused) return refused;
+    if (this.over) return { ok: false, reason: 'game-over' };
     const weapon = this.weaponDefs.get(weaponId);
     if (!weapon || !this.level.weaponIds.includes(weaponId)) return { ok: false, reason: 'not-in-level' };
     if (this.tileType(x, y) !== 'buildable') return { ok: false, reason: 'not-buildable' };
-    if (this.corks < weapon.cost) return { ok: false, reason: 'no-corks' };
-    this.corks -= weapon.cost;
+    // `spent` keeps the data cost so a sale still refunds half of it.
     this.towers.push({ id: this.nextTowerId++, x, y, weaponId, tier: 0, spent: weapon.cost, shotCredit: 0 });
-    this.actionsLeft -= 1;
     return { ok: true };
   }
 
   upgradeTower(towerId) {
-    const refused = this.actionRefusal();
-    if (refused) return refused;
+    if (this.over) return { ok: false, reason: 'game-over' };
     const tower = this.towers.find((t) => t.id === towerId);
     if (!tower) return { ok: false, reason: 'unknown' };
     const cost = upgradeCost(this.weaponDefs.get(tower.weaponId), tower.tier);
     if (cost === null) return { ok: false, reason: 'max-tier' };
-    if (this.corks < cost) return { ok: false, reason: 'no-corks' };
-    this.corks -= cost;
     tower.spent += cost;
     tower.tier += 1;
-    this.actionsLeft -= 1;
     return { ok: true };
   }
 
   sellTower(towerId) {
-    const refused = this.actionRefusal();
-    if (refused) return refused;
+    if (this.over) return { ok: false, reason: 'game-over' };
     const i = this.towers.findIndex((t) => t.id === towerId);
     if (i < 0) return { ok: false, reason: 'unknown' };
     const refund = sellRefund(this.towers[i]);
     this.towers.splice(i, 1);
     this.corks += refund;
-    this.actionsLeft -= 1;
     return { ok: true, refund };
   }
 
-  // Free (not an action), once per level: every guest present pays out and leaves.
+  // Every guest present pays out and leaves.
   ringBell() {
     if (this.over) return { ok: false, reason: 'game-over', events: [] };
-    if (this.bellUsed) return { ok: false, reason: 'used', events: [] };
     let reward = 0;
     for (const e of this.enemies) reward += this.enemyDefs.get(e.enemyId).reward;
     const event = { type: 'bell', round: 0, count: this.enemies.length, reward, ids: this.enemies.map((e) => e.id) };
     this.corks += reward;
     this.enemies = [];
-    this.bellUsed = true;
     return { ok: true, events: [event] };
   }
 
@@ -124,19 +171,13 @@ export class GameState {
     return Math.floor(e.credit + this.gainOf(e) + EPS);
   }
 
-  // Pays the action bonus, resolves the guests' turn and starts the next player turn.
+  // Resolves the guests' turn and starts the next player turn (drawing a card).
   endTurn() {
     if (this.over) return { ok: false, reason: 'game-over', events: [] };
     const events = [];
     this.events = events;
     this.round = 0;
-
-    const caps = ACTION_BONUS * this.actionsLeft;
-    if (caps > 0) {
-      this.corks += caps;
-      events.push({ type: 'bonus', round: -1, caps });
-    }
-    this.actionsLeft = 0;
+    this.cardPlayedThisTurn = true; // no cards while the guests move
 
     this.turnState = { stalledNow: new Set(), immuneNow: new Set(), steps: new Map(), shots: new Map(), quoted: false };
     this.progressWave();
@@ -249,7 +290,12 @@ export class GameState {
     }
     if (this.turn >= MAX_TURNS) return this.finish('lost', 'too-long');
     this.turn += 1;
-    this.actionsLeft = ACTIONS_PER_TURN;
+    this.cardPlayedThisTurn = false;
+    if (this.hand.length < HAND_MAX && this.levelWeapons.length > 0) {
+      const card = this.withId(rollCard(this.rng, this.levelWeapons));
+      this.hand.push(card);
+      this.emit({ type: 'draw', card });
+    }
     // nextWaveIn counts the guests' turns before the wave's: 0 = the coming one.
     if (this.nextWaveIn !== null && this.nextWaveIn > 0) this.nextWaveIn -= 1;
   }
@@ -369,12 +415,6 @@ export class GameState {
   }
 
   // --- misc ---
-
-  actionRefusal() {
-    if (this.over) return { ok: false, reason: 'game-over' };
-    if (this.actionsLeft <= 0) return { ok: false, reason: 'no-actions' };
-    return null;
-  }
 
   finish(phase, reason) {
     this.phase = phase;

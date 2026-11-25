@@ -68,11 +68,10 @@ test('initial state and tile types', () => {
   assert.equal(s.turn, 1);
   assert.equal(s.phase, 'player');
   assert.equal(s.endReason, null);
-  assert.equal(s.actionsLeft, 3);
+  assert.equal(s.cardPlayedThisTurn, false);
   assert.equal(s.waveIndex, 0);
   assert.equal(s.totalWaves, 1);
   assert.equal(s.nextWaveIn, 0);
-  assert.equal(s.bellUsed, false);
   assert.equal(s.tileType(1, 1), 'path');
   assert.equal(s.tileType(0, 0), 'blocked');
   assert.equal(s.tileType(2, 0), 'buildable');
@@ -80,28 +79,24 @@ test('initial state and tile types', () => {
   assert.equal(s.tileType(-1, 0), 'outside');
   assert.ok(s.placeTower(2, 0, 'cannon').ok);
   assert.equal(s.tileType(2, 0), 'tower');
-  assert.equal(s.actionsLeft, 2);
   assert.equal(typeof s.tick, 'undefined');
   assert.equal(typeof s.startNextWave, 'undefined');
 });
 
-test('placeTower rejects path, blocked, occupied, missing corks and foreign weapons; refusals cost no action', () => {
+test('placeTower rejects path, blocked, occupied and foreign weapons; building is free', () => {
   const s = makeState();
   assert.deepEqual(s.placeTower(1, 1, 'cannon'), { ok: false, reason: 'not-buildable' });
   assert.deepEqual(s.placeTower(0, 0, 'cannon'), { ok: false, reason: 'not-buildable' });
   assert.deepEqual(s.placeTower(9, 9, 'cannon'), { ok: false, reason: 'not-buildable' });
   assert.deepEqual(s.placeTower(2, 0, 'banned'), { ok: false, reason: 'not-in-level' });
-  assert.equal(s.actionsLeft, 3);
   assert.deepEqual(s.placeTower(2, 0, 'cannon'), { ok: true });
-  assert.equal(s.corks, 69);
   assert.deepEqual(s.placeTower(2, 0, 'cannon'), { ok: false, reason: 'not-buildable' });
-  assert.deepEqual(s.placeTower(3, 0, 'gold'), { ok: false, reason: 'no-corks' });
-  assert.equal(s.corks, 69);
-  assert.equal(s.towers.length, 1);
-  assert.equal(s.actionsLeft, 2);
+  assert.deepEqual(s.placeTower(3, 0, 'gold'), { ok: true }); // costs more than the caps held
+  assert.equal(s.corks, 100);
+  assert.equal(s.towers.length, 2);
 });
 
-test('upgrade: max-tier, unknown, no-corks', () => {
+test('upgrade: max-tier, unknown; free', () => {
   const s = makeState();
   s.placeTower(2, 0, 'cannon');
   const id = s.towers[0].id;
@@ -110,22 +105,18 @@ test('upgrade: max-tier, unknown, no-corks', () => {
   assert.equal(s.towers[0].spent, 51);
   assert.deepEqual(s.upgradeTower(id), { ok: false, reason: 'max-tier' });
   assert.deepEqual(s.upgradeTower('nope'), { ok: false, reason: 'unknown' });
-  const poor = makeState({ startingCorks: 40 });
-  poor.placeTower(2, 0, 'cannon');
-  assert.deepEqual(poor.upgradeTower(poor.towers[0].id), { ok: false, reason: 'no-corks' });
-  assert.equal(poor.corks, 9);
+  assert.equal(s.corks, 100);
 });
 
-test('sellTower refunds half of spent and costs an action', () => {
+test('sellTower refunds half of spent', () => {
   const s = makeState();
   s.placeTower(2, 0, 'cannon');
   const id = s.towers[0].id;
   s.upgradeTower(id);
-  assert.equal(s.corks, 49);
+  assert.equal(s.corks, 100);
   assert.deepEqual(s.sellTower(id), { ok: true, refund: Math.floor((31 + 20) / 2) });
-  assert.equal(s.corks, 74);
+  assert.equal(s.corks, 125);
   assert.equal(s.towers.length, 0);
-  assert.equal(s.actionsLeft, 0);
   assert.equal(s.tileType(2, 0), 'buildable');
 });
 
@@ -135,31 +126,17 @@ test('sellRefund is half of spent rounded down', () => {
   assert.equal(sellRefund({ spent: 170 }), 85);
 });
 
-test('RF4: a 4th action is refused with no-actions and changes nothing', () => {
-  const s = makeState({ startingCorks: 500 });
-  assert.ok(s.placeTower(2, 0, 'cannon').ok);
-  assert.ok(s.placeTower(3, 0, 'cannon').ok);
-  assert.ok(s.upgradeTower(s.towers[0].id).ok);
-  const corks = s.corks;
-  assert.deepEqual(s.placeTower(4, 0, 'cannon'), { ok: false, reason: 'no-actions' });
-  assert.deepEqual(s.upgradeTower(s.towers[1].id), { ok: false, reason: 'no-actions' });
-  assert.deepEqual(s.sellTower(s.towers[1].id), { ok: false, reason: 'no-actions' });
-  assert.equal(s.corks, corks);
-  assert.equal(s.towers.length, 2);
-  assert.equal(s.towers[1].tier, 0);
-});
-
-test('RF4: endTurn with 2 unused actions pays 20 caps, bonus event first; actions reset', () => {
+test('endTurn pays no bonus and starts the next player turn', () => {
   const g = makeState({ len: 9, waves: [one(), one()] });
   assert.ok(g.placeTower(2, 0, 'cannon').ok);
   const corks = g.corks;
   const r = g.endTurn();
   assert.equal(r.ok, true);
-  assert.deepEqual(r.events[0], { type: 'bonus', round: -1, caps: 20 });
+  assert.equal(ofType(r.events, 'bonus').length, 0);
   const killReward = ofType(r.events, 'kill').reduce((n, e) => n + e.reward, 0);
-  assert.equal(g.corks, corks + 20 + killReward);
+  assert.equal(g.corks, corks + killReward);
   assert.equal(g.turn, 2);
-  assert.equal(g.actionsLeft, 3);
+  assert.equal(g.cardPlayedThisTurn, false);
   assert.equal(g.phase, 'player');
 });
 
@@ -177,14 +154,13 @@ test('RF4: actions after won or lost return game-over', () => {
   assert.equal(s.endTurn().reason, 'game-over');
 });
 
-test('RF4: the bell is free, works once, second ring is refused with used', () => {
+test('ringBell clears and pays every guest present; a second ring works too', () => {
   const s = makeState({ len: 9, waves: [[{ enemyId: 'guest', count: 2, intervalS: 0, delayS: 0 }]] });
   s.endTurn();
   assert.equal(s.enemies.length, 2);
   const corks = s.corks;
   const r = s.ringBell();
   assert.equal(r.ok, true);
-  assert.equal(s.actionsLeft, 3);
   const bell = ofType(r.events, 'bell');
   assert.equal(bell.length, 1);
   assert.equal(bell[0].count, 2);
@@ -192,11 +168,9 @@ test('RF4: the bell is free, works once, second ring is refused with used', () =
   assert.equal(bell[0].ids.length, 2);
   assert.equal(s.corks, corks + 10);
   assert.equal(s.enemies.length, 0);
-  assert.equal(s.bellUsed, true);
   const again = s.ringBell();
-  assert.equal(again.ok, false);
-  assert.equal(again.reason, 'used');
-  assert.deepEqual(again.events, []);
+  assert.equal(again.ok, true);
+  assert.equal(ofType(again.events, 'bell')[0].count, 0);
   // The cleared last wave counts as won at the end of the next guests' turn.
   const end = s.endTurn();
   assert.equal(s.phase, 'won');
@@ -481,8 +455,8 @@ test('a strong tower kills both guests: won, rewards paid, kill events carry ids
   assert.equal(kills[0].reward, 5);
   assert.equal(kills[0].x, 0.5);
   assert.equal(kills[0].y, 1.5);
-  const bonus = ofType(events, 'bonus').reduce((n, e) => n + e.caps, 0);
-  assert.equal(s.corks, 100 - 31 + 10 + bonus);
+  assert.equal(ofType(events, 'bonus').length, 0);
+  assert.equal(s.corks, 100 + 10);
 });
 
 test('without towers guests leak; won if kegs remain, lost with kegs reason otherwise', () => {
