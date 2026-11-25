@@ -1,5 +1,6 @@
 // Pure validation for the catalog editors (no DOM). Each function returns a list of
 // human-readable problems; an empty list means the item is valid to save.
+import { validateLevel } from '../shared/model.js';
 
 export const EFFECTS = ['none', 'slow', 'distract', 'lure', 'splash'];
 export const UPGRADE_FIELDS = ['cost', 'damage', 'range', 'fireRate', 'effectStrength'];
@@ -70,5 +71,20 @@ export function levelsUsing(levels, { weaponId, enemyId } = {}) {
     .filter((l) => l && (
       (weaponId !== undefined && arr(l.weaponIds).includes(weaponId))
       || (enemyId !== undefined && arr(l.waves).some((w) => arr(w).some((g) => g?.enemyId === enemyId)))))
+    .map((l) => String(l.name ?? l.id ?? '(unnamed level)'));
+}
+
+// Names of levels that are playable now but would fail validation (and so be hidden from the
+// game) once this weapon/enemy is deleted: left with no weapons, or every wave emptied.
+export function levelsHiddenByDelete(levels, catalog, { weaponId, enemyId } = {}) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const weapons = arr(catalog?.weapons);
+  const enemies = arr(catalog?.enemies);
+  const after = {
+    weapons: weapons.filter((w) => w?.id !== weaponId),
+    enemies: enemies.filter((e) => e?.id !== enemyId),
+  };
+  return arr(levels)
+    .filter((l) => l && validateLevel(l, { weapons, enemies }).level && !validateLevel(l, after).level)
     .map((l) => String(l.name ?? l.id ?? '(unnamed level)'));
 }

@@ -18,3 +18,8 @@ One-time setup in the Supabase dashboard:
 
 Both SQL files are safe to re-run. Only the publishable key is used in the site's code;
 Row Level Security lets anyone read and only users listed in `admins` write.
+
+To confirm the game reads from the database, open `play.html` with the browser console
+open: it logs `Game data loaded from db.` If it logs `Game data loaded from fallback.`
+instead, a `Using fallback data: ...` warning just before it says why (for example a
+missing grant, no published levels, or a timeout).

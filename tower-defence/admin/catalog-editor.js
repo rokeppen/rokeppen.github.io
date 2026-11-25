@@ -2,7 +2,7 @@
 // state.dataSource and calls refresh() afterwards. DB strings only ever go through
 // textContent / .value (never innerHTML).
 import { state, refresh } from './admin.js';
-import { validateWeapon, validateEnemy, levelsUsing, EFFECTS } from './catalog-validate.js';
+import { validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, EFFECTS } from './catalog-validate.js';
 
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -15,6 +15,21 @@ const toNum = (s) => (String(s).trim() === '' ? NaN : Number(s));
 
 const levelsUsingWeapon = (id) => levelsUsing(state.data.levels, { weaponId: id });
 const levelsUsingEnemy = (id) => levelsUsing(state.data.levels, { enemyId: id });
+const hiddenIfWeaponDeleted = (id) => levelsHiddenByDelete(state.data.levels, state.data, { weaponId: id });
+const hiddenIfEnemyDeleted = (id) => levelsHiddenByDelete(state.data.levels, state.data, { enemyId: id });
+
+// Confirm text for deleting an item: which levels use it, and which of those would be
+// hidden from the game (no weapons / no waves left) until repaired in the level editor.
+function deleteWarning(name, used, hidden, leftWithout) {
+  if (used.length === 0) return `Delete "${name}"?`;
+  let text = `"${name}" is used by: ${used.join(', ')}.`;
+  if (hidden.length) {
+    text += `\n\nThese levels would have no ${leftWithout} left and will be hidden from the game`
+      + ` until repaired in the level editor: ${hidden.join(', ')}.`;
+  }
+  if (hidden.length < used.length) text += '\n\nThe other levels just lose it.';
+  return `${text}\n\nDelete anyway?`;
+}
 
 // A labelled input bound to draft[key]. kind: 'text' | 'number' | 'textarea'.
 function field(draft, key, label, kind = 'text', extra = {}) {
@@ -37,7 +52,8 @@ function spriteField(draft) {
 /**
  * Generic list + form editor.
  * cfg: { noun, items(), blank(), buildFields(draft, form) -> Node[], normalize(draft), validate,
- *        usedBy(id) -> levels, save(item), remove(id) }
+ *        usedBy(id) -> level names, hiddenBy(id) -> level names hidden if it's deleted,
+ *        leftWithout ('weapons' | 'waves'), save(item), remove(id) }
  */
 function mountCatalog(el, cfg) {
   let selectedId = null; // null = nothing; '__new__' = new draft
@@ -92,10 +108,7 @@ function mountCatalog(el, cfg) {
       const del = h('button', { type: 'button', className: 'secondary', textContent: 'Delete', disabled: state.readOnly });
       del.onclick = async () => {
         error.textContent = '';
-        const used = cfg.usedBy(draft.id);
-        const warn = used.length
-          ? `"${draft.name}" is used by: ${used.join(', ')}.\n\nThose levels will lose it (the game cleans them on load). Delete anyway?`
-          : `Delete "${draft.name}"?`;
+        const warn = deleteWarning(draft.name, cfg.usedBy(draft.id), cfg.hiddenBy(draft.id), cfg.leftWithout);
         if (!confirm(warn)) return;
         await write(() => cfg.remove(draft.id), error, del, () => { selectedId = null; });
       };
@@ -204,6 +217,8 @@ export function mountWeapons(el) {
     buildFields: weaponFields,
     validate: validateWeapon,
     usedBy: levelsUsingWeapon,
+    hiddenBy: hiddenIfWeaponDeleted,
+    leftWithout: 'weapons',
     save: (w) => state.dataSource.saveWeapon(w),
     remove: (id) => state.dataSource.deleteWeapon(id),
   });
@@ -226,6 +241,8 @@ export function mountEnemies(el) {
     ],
     validate: validateEnemy,
     usedBy: levelsUsingEnemy,
+    hiddenBy: hiddenIfEnemyDeleted,
+    leftWithout: 'waves',
     save: (e) => state.dataSource.saveEnemy(e),
     remove: (id) => state.dataSource.deleteEnemy(id),
   });

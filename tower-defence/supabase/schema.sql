@@ -49,6 +49,13 @@ create table if not exists public.admins (
   user_id uuid primary key references auth.users on delete cascade
 );
 
+-- Explicit table privileges for the API roles (newer projects don't grant these by
+-- default). Row Level Security below still decides which rows each role may touch.
+grant usage on schema public to anon, authenticated;
+grant select on public.weapons, public.enemies, public.levels to anon, authenticated;
+grant insert, update, delete on public.weapons, public.enemies, public.levels to authenticated;
+grant select on public.admins to authenticated;
+
 -- True when the signed-in user is listed in admins. Security definer so it can read
 -- admins regardless of that table's RLS; search_path pinned to avoid hijacking.
 create or replace function public.is_admin()

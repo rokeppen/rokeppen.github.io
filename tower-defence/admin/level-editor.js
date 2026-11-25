@@ -211,7 +211,9 @@ async function saveCurrent() {
 }
 
 function playCurrent() {
-  const url = new URL(`../play.html?level=${encodeURIComponent(ed.draft.id)}&preview=1`, location.href);
+  // Resolved against this module (tower-defence/admin/level-editor.js), not the page URL,
+  // so it works whether the admin page was opened as /admin or /admin/.
+  const url = new URL(`../play.html?level=${encodeURIComponent(ed.draft.id)}&preview=1`, import.meta.url);
   window.open(url.href, '_blank', 'noopener');
 }
 

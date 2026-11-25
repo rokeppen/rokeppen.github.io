@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateWeapon, validateEnemy, levelsUsing } from '../admin/catalog-validate.js';
+import { validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete } from '../admin/catalog-validate.js';
 
 const weapon = (o = {}) => ({
   id: 'w1', name: 'Cannon', description: '', sprite: 'x', cost: 50, range: 2.5, damage: 8, fireRate: 1.5,
@@ -76,4 +76,25 @@ test('levelsUsing finds weapon and enemy users and survives malformed levels', (
   assert.deepEqual(levelsUsing(levels, { enemyId: 'e1' }), ['A', 'D']);
   assert.deepEqual(levelsUsing(levels, { enemyId: 'zzz' }), []);
   assert.deepEqual(levelsUsing(undefined, { weaponId: 'w1' }), []);
+});
+
+test('levelsHiddenByDelete lists levels left with no weapons or no waves', () => {
+  const lvl = (o) => ({
+    cols: 3, rows: 1, start: { x: 0, y: 0 }, end: { x: 2, y: 0 },
+    path: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], blocked: [],
+    startingCorks: 10, startingWine: 5, ...o,
+  });
+  const g = (enemyId) => ({ enemyId, count: 1, intervalS: 1, delayS: 0 });
+  const catalog = { weapons: [{ id: 'w1' }, { id: 'w2' }], enemies: [{ id: 'e1' }, { id: 'e2' }] };
+  const levels = [
+    lvl({ id: 'only-w1', name: 'Only W1', weaponIds: ['w1'], waves: [[g('e1')]] }),
+    lvl({ id: 'both', name: 'Both', weaponIds: ['w1', 'w2'], waves: [[g('e1')], [g('e2')]] }),
+    lvl({ id: 'w1-gone-w', name: 'W1 + ghost', weaponIds: ['w1', 'ghost'], waves: [[g('e1'), g('e2')]] }),
+    lvl({ id: 'broken', name: 'Broken', weaponIds: ['w1'], waves: [[g('e1')]], path: [] }),
+  ];
+  assert.deepEqual(levelsHiddenByDelete(levels, catalog, { weaponId: 'w1' }), ['Only W1', 'W1 + ghost']);
+  assert.deepEqual(levelsHiddenByDelete(levels, catalog, { weaponId: 'w2' }), []);
+  // 'both' keeps wave 2 (e2); 'W1 + ghost' keeps e2 in its only wave.
+  assert.deepEqual(levelsHiddenByDelete(levels, catalog, { enemyId: 'e1' }), ['Only W1']);
+  assert.deepEqual(levelsHiddenByDelete(undefined, catalog, { enemyId: 'e1' }), []);
 });
