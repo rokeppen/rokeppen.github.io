@@ -1,7 +1,7 @@
 // Top bar: white stat cards (🧢 caps, 🍺 kegs, "Wave n/total · Turn t", the action dots,
 // "Next wave in N turns" with the coming guests) and the chunky game-wide buttons
 // (Victory Bell = gold, End turn = navy, ⏩ / mute / levels = white).
-// Keys: Space end turn, B bell, F ⏩ fast playback, M mute.
+// Keys: Space end turn, Enter skip to the next round, B bell, F ⏩ fast playback, M mute.
 // The numbers come from scene.view, which follows the state except while the guests' turn
 // plays back (then it changes event by event). (Internally caps are corks, kegs are wine.)
 import { PALETTE, HUD_HEIGHT, css } from '../theme.js';
@@ -55,6 +55,8 @@ export class Hud {
     if (kb) {
       // Space during the guests' turn is simply ignored (no toast for a held key).
       kb.on('keydown-SPACE', (e) => { if (!e?.repeat && !scene.busy) scene.endTurn(); });
+      // Enter skips to the next round (ends the turn without animation, or finishes it).
+      kb.on('keydown-ENTER', (e) => { if (!e?.repeat) scene.skipToNextRound(); });
       kb.on('keydown-B', () => scene.ringBell());
       kb.on('keydown-F', () => this.toggleFast());
       kb.on('keydown-M', () => this.toggleMute());

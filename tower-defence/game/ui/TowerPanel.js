@@ -25,8 +25,9 @@ const HELP = [
   '🔔 Bell: free, once per level.',
   '',
   'Keys: 1-9 build · Esc cancel',
-  'Space end turn · B bell · F ⏩',
-  'U upgrade · S sell · M mute',
+  'Space end turn · Enter skip turn',
+  'B bell · F ⏩ · M mute',
+  'U upgrade · S sell',
 ].join('\n');
 
 // Durations are whole guests' turns (the engine rounds data seconds up).

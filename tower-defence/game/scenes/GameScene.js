@@ -98,6 +98,8 @@ export class GameScene extends Phaser.Scene {
     this.fast = false;
     this.stepMs = STEP_MS; // tile-to-tile tween of the current beat (shorter on long walks)
     this.busy = false;
+    this.playback = null; // { beats, i, timer } of the guests' turn being played back
+    this.playbackGen = 0;
     this.view = {};
     this.syncView();
     this.kills = 0;
@@ -364,24 +366,63 @@ export class GameScene extends Phaser.Scene {
     this.stepMs = STEP_MS;
     for (const s of this.enemySprites.values()) s.preview = null; // previews hidden while moving
     const beats = planPlayback(events);
-    let i = 0;
+    const run = { beats, i: 0, timer: null };
+    this.playback = run;
     const next = () => {
-      if (!this.state) return;
-      if (i > beats.length) {
+      if (!this.state || this.playback !== run) return;
+      if (run.i > beats.length) {
+        this.playback = null;
         this.finishPlayback();
         return;
       }
-      if (i === beats.length) {
-        i += 1;
-        this.time.delayedCall(scaleMs(SETTLE_MS, this.fast), next);
+      if (run.i === beats.length) {
+        run.i += 1;
+        run.timer = this.time.delayedCall(scaleMs(SETTLE_MS, this.fast), next);
         return;
       }
-      const beat = beats[i++];
+      const beat = beats[run.i++];
       if (beat.stepMs !== undefined) this.stepMs = beat.stepMs;
       for (const ev of beat.events) this.playEvent(ev);
-      this.time.delayedCall(scaleMs(beat.ms, this.fast), next);
+      run.timer = this.time.delayedCall(scaleMs(beat.ms, this.fast), next);
     };
     next();
+  }
+
+  // Enter: jump to the next round. On the player's turn it ends the turn without the
+  // walking animation; while the guests are moving it finishes their turn at once.
+  skipToNextRound() {
+    if (this.ended || this.state.over) return;
+    if (!this.busy) {
+      const result = this.state.endTurn();
+      if (!result.ok) {
+        this.toastReason(result.reason);
+        return;
+      }
+      this.selectWeapon(null);
+      this.runPlayback(result.events);
+    }
+    this.skipPlayback();
+  }
+
+  // Stops the running playback and applies what is left without animating it: the
+  // sprites snap to the engine's state, and the level still ends if this turn ended it.
+  skipPlayback() {
+    const run = this.playback;
+    if (!this.busy || !run) return;
+    if (run.timer) run.timer.remove(false);
+    this.playback = null;
+    this.playbackGen = (this.playbackGen || 0) + 1; // cancels pending leak animations
+    let ending = null;
+    for (const beat of run.beats.slice(Math.min(run.i, run.beats.length))) {
+      for (const ev of beat.events) {
+        if (ev.type === 'kill') this.kills += 1;
+        if (ev.type === 'won' || ev.type === 'lost') ending = ev;
+        else this.bus.emit('state-event', ev);
+      }
+    }
+    for (const s of this.enemySprites.values()) this.tweens.killTweensOf(s.pos);
+    this.finishPlayback();
+    if (ending) this.playEvent(ending);
   }
 
   // Back to the player: the sprites match the state exactly, previews are refreshed.
@@ -479,7 +520,9 @@ export class GameScene extends Phaser.Scene {
 
   // The guest finishes its step onto the bar, then drains the kegs and leaves.
   renderLeak(ev) {
+    const gen = this.playbackGen;
     this.time.delayedCall(scaleMs(this.stepMs, this.fast), () => {
+      if (gen !== this.playbackGen) return; // the turn was skipped; the state is already shown
       this.view.wine = Math.max(0, this.view.wine - ev.wineDamage);
       this.removeEnemySprite(ev.id, false);
       const at = this.tileCentre(this.level.end.x, this.level.end.y);
