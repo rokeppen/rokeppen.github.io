@@ -93,3 +93,38 @@
 .le-groups select { font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); max-width: 14em; }
 .le-add-group { padding: 2px 10px; font-size: .9rem; }
 @media (max-width: 560px) { .le-groups input { width: 4em; } .le-groups select { max-width: 9em; } }
+
+/* Guest/weapon chips (Guests section and Generate panel) */
+.le-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.le-chip {
+  display: inline-flex; gap: 6px; align-items: center; padding: 4px 10px; border-radius: 999px;
+  background: var(--cream); color: var(--text); border: 1px solid var(--line); font-size: .9rem; font-weight: normal;
+}
+.le-chip[aria-pressed="true"] { background: #c9f2d9; border-color: #2bb673; font-weight: bold; }
+.le-chip.missing { color: var(--error); font-style: italic; }
+.le-chip-sprite { display: inline-flex; align-items: center; }
+.le-chip-sprite img { height: 1.2em; width: 1.2em; object-fit: contain; }
+
+/* Generate panel */
+.le-gen-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 4px 20px; }
+@media (max-width: 760px) { .le-gen-grid { grid-template-columns: minmax(0, 1fr); } }
+.le-gen-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 10px 0 4px; }
+.le-seg { display: flex; gap: 3px; padding: 3px; background: var(--cream); border: 1px solid var(--line); border-radius: 8px; }
+.le-seg button { flex: 1; padding: 5px 4px; font-size: .85rem; background: transparent; color: var(--text); border: 0; }
+.le-seg button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); font-weight: bold; }
+.le-gen-row { display: flex; gap: 8px; align-items: center; font-size: .9rem; }
+.le-gen-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--wine); }
+.le-gen-waves { width: 4.5em; }
+.le-gen-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.le-seed { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* Beer bar image */
+.le-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.le-bar-title { font-weight: bold; color: var(--wine); }
+.le-bar label { display: flex; gap: 6px; align-items: center; font-size: .85rem; color: var(--muted); }
+.le-bar-preview { min-width: 48px; min-height: 48px; display: grid; place-items: center; font-size: 2rem; line-height: 1; }
+.le-bar-preview img { width: 48px; height: 48px; object-fit: contain; }
+.le-emoji { width: 4.5em; font-size: 1.2rem; }
+.le-bar-actions { display: flex; gap: 6px; }
+.le-bar-note { flex-basis: 100%; margin: 0; font-size: .8rem; }
+.le-bar .error { flex-basis: 100%; margin: 0; }

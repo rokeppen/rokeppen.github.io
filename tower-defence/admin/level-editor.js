@@ -6,7 +6,12 @@ import {
   newLevel, duplicateLevel, applyTool, extendPath, toggleBlocked, eraseTile,
   resizeLevel, canSave, MIN_SIZE, MAX_SIZE, prepareForEditor,
   setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup, waveSummary,
+  setGuests, guestWaves, applyGenerated, DEFAULT_BAR_SPRITE,
 } from './editor-state.js';
+import { SIZES, DIFFICULTIES, canGenerate, generateLevel, randomSeed } from '../shared/generator.js';
+import { isUrl } from '../shared/mapping.js';
+import { ALLOWED_TYPES, validateImageFile } from './upload-validate.js';
+import { uploadSprite, removeSprite } from './upload.js';
 
 const TOOLS = [
   { id: 'start', label: 'Start', key: 's', hint: 'Click a tile to place the start (S). Moving it clears the path.' },
@@ -33,6 +38,15 @@ const ed = {
   history: [],       // previous drafts for undo
   paint: null,       // active pointer stroke
   busy: false,
+  // Generate panel settings. `seed` is the last one used (shown as "Party #seed"); `result` is
+  // the draft that generation produced, so re-rolling it doesn't ask to discard it again.
+  gen: { size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed: null, result: null },
+  // Bar image. `barEmoji` is the emoji shown without an image (or when it fails to load); it
+  // is the draft's barSprite whenever that isn't an image URL.
+  barEmoji: DEFAULT_BAR_SPRITE,
+  barMessage: '',    // upload error
+  uploading: false,  // a bar image upload is in flight (blocks Save and level switching)
+  barUploads: new Set(), // bar images uploaded this session: removed once nothing references them
 };
 
 // ---------- helpers ----------
@@ -80,14 +94,22 @@ function load(level, { isNew = false } = {}) {
   ed.history = [];
   ed.warnings = [];
   ed.message = null;
+  ed.barEmoji = isUrl(draft.barSprite) ? DEFAULT_BAR_SPRITE : draft.barSprite;
+  ed.barMessage = '';
+  ed.gen.seed = null;
+  ed.gen.result = null;
 }
 
 function confirmDiscard() {
-  if (ed.busy) return false; // never switch level while a save/delete is in flight
+  if (ed.busy || ed.uploading) return false; // never switch level while a save/delete/upload is in flight
   return !isDirty() || confirm(`"${ed.draft.name || 'This level'}" has unsaved changes. Discard them?`);
 }
 
-const blankLevel = (sortOrder) => ({ ...newLevel(), sortOrder, weaponIds: catalog().weapons.map((w) => w.id) });
+const blankLevel = (sortOrder) => ({
+  ...newLevel(), sortOrder,
+  weaponIds: catalog().weapons.map((w) => w.id),
+  enemyIds: catalog().enemies.map((e) => e.id),
+});
 
 // Replace the draft. `record` pushes the previous draft onto the undo stack.
 // `render` lists the section ids to re-render (status and list always refresh).
@@ -174,15 +196,42 @@ async function deleteCurrent() {
     state.data = { ...state.data, levels: state.data.levels.filter((l) => l.id !== level.id) };
   }
   selectFirstOrNew();
+  removeUnusedBarImages([level.barSprite]);
   ed.message = reloadError
     ? { kind: 'error', text: `Deleted "${level.name}", but couldn't reload the levels: ${reloadError}` }
     : { kind: 'ok', text: `Deleted "${level.name}".` };
   renderAll();
 }
 
+// Called after a successful save/delete (state.data reloaded). Best effort, never awaited:
+// deletes the given bar images and this session's uploads unless a level in the database, a
+// catalog sprite or the current draft still points at them. Undo entries that pointed at a
+// deleted image get the emoji instead, so Undo never brings back a dead URL.
+function removeUnusedBarImages(candidates) {
+  const used = new Set([
+    ...(state.data?.levels ?? []).map((l) => l.barSprite),
+    ...(state.data?.weapons ?? []).map((w) => w.sprite),
+    ...(state.data?.enemies ?? []).map((e) => e.sprite),
+    ed.draft?.barSprite,
+  ]);
+  const gone = new Set();
+  for (const url of new Set([...candidates, ...ed.barUploads])) {
+    if (!isUrl(url) || used.has(url)) continue;
+    ed.barUploads.delete(url);
+    gone.add(url);
+    removeSprite(state.client, url);
+  }
+  if (gone.size) {
+    const emoji = ed.barEmoji && !isUrl(ed.barEmoji) ? ed.barEmoji : DEFAULT_BAR_SPRITE;
+    ed.history = ed.history.map((l) => (gone.has(l.barSprite) ? { ...l, barSprite: emoji } : l));
+  }
+}
+
 async function saveCurrent() {
   const level = ed.draft;
-  if (state.readOnly || ed.busy || !canSave(level, catalog()).ok) return;
+  if (state.readOnly || ed.busy || ed.uploading || !canSave(level, catalog()).ok) return;
+  // The bar image the database points at before this save (removed after it if replaced).
+  const previousBar = savedLevels().find((l) => l.id === level.id)?.barSprite;
   ed.busy = true;
   renderPart('save');
   renderList();
@@ -204,6 +253,7 @@ async function saveCurrent() {
     ed.message = res.reloadError
       ? { kind: 'error', text: `Saved "${level.name}", but couldn't reload: ${res.reloadError}` }
       : { kind: 'ok', text: `Saved "${level.name}".` };
+    removeUnusedBarImages([previousBar]);
   } else {
     ed.message = { kind: 'error', text: `Save failed: ${res.error}` };
   }
@@ -241,9 +291,11 @@ const SECTIONS = [
   { id: 'banner', render: bannerSection },
   { id: 'details', render: detailsSection },
   { id: 'save', render: saveSection },
+  { id: 'generate', render: generateSection },
   { id: 'map', render: mapSection },
   { id: 'settings', render: settingsSection },
   { id: 'weapons', render: weaponsSection },
+  { id: 'guests', render: guestsSection },
   { id: 'waves', render: wavesSection },
 ];
 
@@ -369,7 +421,7 @@ function saveSection() {
   const saveBtn = h('button', {
     type: 'button',
     textContent: ed.busy ? 'Saving…' : 'Save',
-    disabled: !ok || !(dirty || !saved) || state.readOnly || ed.busy,
+    disabled: !ok || !(dirty || !saved) || state.readOnly || ed.busy || ed.uploading,
     onclick: saveCurrent,
   });
   // The game loads the level from the database, so only a saved, unchanged, valid level can be played.
@@ -418,7 +470,253 @@ function settingsSection() {
     h('h3', {}, 'Starting resources'),
     h('div', { className: 'le-fields' },
       field('startingCorks', 'Starting corks', 'Corks to spend on weapons at the start'),
-      field('startingWine', 'Starting wine (bottles)', 'Lives: a guest reaching the end drinks some wine')));
+      field('startingWine', 'Starting wine (bottles)', 'Lives: a guest reaching the end drinks some wine')),
+    barImageFields());
+}
+
+// ---------- bar image ----------
+
+// An <img> for an image URL (the emoji if it fails to load), else the emoji itself.
+function barView(sprite) {
+  const fallback = ed.barEmoji || DEFAULT_BAR_SPRITE;
+  if (!isUrl(sprite)) return h('span', { className: 'le-bar-img', textContent: sprite || fallback });
+  const img = h('img', { className: 'le-bar-img', src: sprite, alt: 'Bar image' });
+  img.onerror = () => img.replaceWith(h('span', { className: 'le-bar-img', textContent: fallback }));
+  return img;
+}
+
+function barImageFields() {
+  // Keep the emoji box in step with the draft (e.g. after Undo); with an image it keeps its value.
+  if (!isUrl(ed.draft.barSprite)) ed.barEmoji = ed.draft.barSprite ?? '';
+  const hasImage = isUrl(ed.draft.barSprite);
+  const off = state.readOnly || ed.uploading || ed.busy;
+  const preview = h('div', { className: 'le-bar-preview' }, barView(ed.draft.barSprite));
+  const fileInput = h('input', { type: 'file', accept: ALLOWED_TYPES.join(','), hidden: true, disabled: off });
+  fileInput.onchange = () => uploadBarImage(fileInput);
+  // The emoji updates on every keystroke without re-rendering (keeps focus); one undo entry
+  // per focus session, like the name.
+  let recorded = false;
+  const emoji = h('input', {
+    type: 'text', className: 'le-emoji', value: ed.barEmoji ?? '', maxLength: 16, disabled: state.readOnly,
+    'aria-label': 'Bar emoji', onblur: () => { recorded = false; },
+  });
+  emoji.oninput = () => {
+    ed.barEmoji = emoji.value.trim();
+    // Without an image the bar sprite is the emoji. A URL typed here never becomes the image.
+    if (!isUrl(ed.draft.barSprite) && !isUrl(ed.barEmoji)) {
+      update({ ...ed.draft, barSprite: ed.barEmoji }, { record: !recorded, render: [] });
+      recorded = true;
+    }
+    preview.replaceChildren(barView(ed.draft.barSprite));
+  };
+  return h('div', { className: 'le-bar' },
+    h('span', { className: 'le-bar-title', textContent: 'Beer bar' }),
+    preview,
+    h('label', {}, 'Emoji', emoji),
+    h('div', { className: 'le-bar-actions' },
+      h('button', {
+        type: 'button', className: 'secondary', textContent: ed.uploading ? 'Uploading…' : 'Upload image',
+        disabled: off, onclick: () => { ed.barMessage = ''; fileInput.click(); },
+      }),
+      h('button', {
+        type: 'button', className: 'secondary', textContent: 'Clear image',
+        disabled: off || !hasImage, onclick: clearBarImage,
+      })),
+    h('p', { className: 'muted le-bar-note' },
+      'PNG, JPEG, SVG or WebP, up to 1 MB. Without an image (or if it fails to load) the emoji is shown.'),
+    fileInput,
+    ed.barMessage ? h('p', { className: 'error', role: 'alert', textContent: ed.barMessage }) : null);
+}
+
+async function uploadBarImage(fileInput) {
+  const file = fileInput.files?.[0];
+  fileInput.value = '';
+  if (!file || state.readOnly || ed.uploading) return;
+  ed.barMessage = '';
+  const problem = validateImageFile(file);
+  if (problem) { ed.barMessage = problem; renderPart('settings'); return; }
+  const levelId = ed.draft.id;
+  ed.uploading = true;
+  renderPart('settings');
+  renderPart('save');
+  try {
+    const result = await uploadSprite(state.client, file);
+    if (!result.ok) { ed.barMessage = result.error; return; }
+    ed.barUploads.add(result.url);
+    // Level switching is blocked while uploading, but never put the image on another level.
+    if (ed.draft?.id === levelId) update({ ...ed.draft, barSprite: result.url }, { render: [] });
+  } catch (e) {
+    ed.barMessage = `Upload failed: ${errorText(e)}`;
+  } finally {
+    ed.uploading = false;
+    if (active()) { renderPart('settings'); renderPart('save'); }
+  }
+}
+
+// Back to the emoji. The image file itself is removed after a save, once nothing uses it.
+function clearBarImage() {
+  ed.barMessage = '';
+  const emoji = ed.barEmoji && !isUrl(ed.barEmoji) ? ed.barEmoji : DEFAULT_BAR_SPRITE;
+  update({ ...ed.draft, barSprite: emoji }, { render: ['settings'] });
+}
+
+// ---------- guest list and weapon chips ----------
+// The same chips appear in the Guests section and the Generate panel: both edit the level's
+// own enemyIds / weaponIds.
+
+const LIST_PARTS = ['generate', 'weapons', 'guests', 'waves'];
+const guestList = () => (Array.isArray(ed.draft.enemyIds) ? ed.draft.enemyIds : []);
+const weaponList = () => (Array.isArray(ed.draft.weaponIds) ? ed.draft.weaponIds : []);
+const guestName = (id) => catalog().enemies.find((e) => e.id === id)?.name ?? `'${id}'`;
+
+function toggleGuest(id) {
+  const listed = guestList();
+  if (!listed.includes(id)) { update(setGuests(ed.draft, [...listed, id]), { render: LIST_PARTS }); return; }
+  const waves = guestWaves(ed.draft, id);
+  if (waves.length && !confirm(
+    `${guestName(id)} ${waves.length === 1 ? 'is in wave' : 'is in waves'} ${waves.join(', ')}. `
+    + 'Taking them off the guest list removes their groups from those waves '
+    + '(a wave left without guests is removed too). Continue?')) return;
+  update(setGuests(ed.draft, listed.filter((x) => x !== id)), { render: LIST_PARTS });
+}
+
+function toggleWeapon(id) {
+  const listed = weaponList();
+  const next = listed.includes(id) ? listed.filter((x) => x !== id) : [...listed, id];
+  update(setWeapons(ed.draft, next), { render: LIST_PARTS });
+}
+
+// A catalog sprite for a chip: an image URL as a small <img> (its emoji on error), else the emoji.
+function chipSprite(item) {
+  if (!item) return '';
+  if (!isUrl(item.sprite)) return item.sprite ?? '';
+  const img = h('img', { src: item.sprite, alt: '' });
+  img.onerror = () => img.replaceWith(item.fallbackSprite ?? '');
+  return img;
+}
+
+function chip(item, label, on, onclick, { missing = false } = {}) {
+  return h('button', {
+    type: 'button', className: `le-chip${missing ? ' missing' : ''}`, 'aria-pressed': String(on),
+    title: on ? `Take ${label} off the list` : `Add ${label}`, onclick,
+  }, h('span', { className: 'le-chip-sprite' }, chipSprite(item)), h('span', { textContent: label }));
+}
+
+function chipGroup(kind) {
+  const isGuests = kind === 'guests';
+  const items = isGuests ? catalog().enemies : catalog().weapons;
+  const listed = isGuests ? guestList() : weaponList();
+  const toggle = isGuests ? toggleGuest : toggleWeapon;
+  const chips = [
+    ...items.map((it) => chip(it, it.name ?? it.id, listed.includes(it.id), () => toggle(it.id))),
+    ...listed.filter((id) => !items.some((it) => it.id === id))
+      .map((id) => chip(null, `'${id}' (no longer exists)`, true, () => toggle(id), { missing: true })),
+  ];
+  if (!chips.length) {
+    return h('p', { className: 'muted' }, isGuests ? 'No guests yet — create one on the Enemies tab first.'
+      : 'No weapons yet — create one on the Weapons tab first.');
+  }
+  return h('div', {
+    className: 'le-chips', role: 'group', 'aria-label': isGuests ? 'Guests in this level' : 'Weapons in this level',
+  }, chips);
+}
+
+function guestsSection() {
+  return h('section', { className: 'le-section le-guests', 'aria-label': 'Guests' },
+    h('h3', {}, 'Guests in this level'),
+    h('p', { className: 'le-hint' }, 'Only listed guests can be put in waves.'),
+    chipGroup('guests'));
+}
+
+// ---------- Generate panel ----------
+
+const SIZE_LABELS = { small: 'Small', medium: 'Medium', large: 'Large' };
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function genOpts(seed) {
+  const g = ed.gen;
+  return {
+    size: g.size, difficulty: g.difficulty, twistiness: g.twistiness, waves: g.waves, seed,
+    enemyIds: guestList(), weaponIds: weaponList(),
+  };
+}
+
+// Generate and Re-roll both draw a new seed. Over unsaved edits (other than an earlier
+// generated result) it asks first; the result is a normal unsaved draft (Undo restores).
+function generate() {
+  if (!canGenerate(genOpts(0), catalog()).ok) return;
+  if (isDirty() && ed.draft !== ed.gen.result && !confirm(
+    `Generating replaces the map, waves and starting resources of "${ed.draft.name || 'this level'}". `
+    + 'Discard your unsaved changes? (Undo brings them back.)')) return;
+  const seed = randomSeed();
+  let next;
+  try {
+    next = applyGenerated(ed.draft, generateLevel(genOpts(seed), catalog()));
+  } catch (e) {
+    ed.message = { kind: 'error', text: `Couldn't generate a level: ${errorText(e)}` };
+    renderPart('banner');
+    return;
+  }
+  ed.gen.seed = seed;
+  ed.gen.result = next;
+  ed.warnings = [];
+  update(next, { render: ['details', 'map', 'settings', ...LIST_PARTS] });
+  ed.message = { kind: 'ok', text: `Generated party #${seed}. Not saved yet: tweak it if you like, then Save.` };
+  renderPart('banner');
+}
+
+function segmented(label, options, current, onpick) {
+  return h('div', { className: 'le-seg', role: 'group', 'aria-label': label },
+    options.map(([value, text]) => h('button', {
+      type: 'button', 'aria-pressed': String(value === current), textContent: text,
+      onclick: () => onpick(value),
+    })));
+}
+
+function generateSection() {
+  const g = ed.gen;
+  const set = (patch) => { Object.assign(g, patch); renderPart('generate'); };
+  const check = canGenerate(genOpts(0), catalog());
+  const twisty = h('input', {
+    type: 'range', min: 0, max: 1, step: 0.05, value: String(g.twistiness), 'aria-label': 'Path twistiness',
+  });
+  twisty.oninput = () => { g.twistiness = Number(twisty.value); };
+  const waves = numberInput(() => g.waves, (n) => set({ waves: Math.round(n) }), {
+    min: 1, max: 20, step: 1, 'aria-label': 'Number of waves', className: 'le-gen-waves',
+  });
+  const lbl = (text) => h('div', { className: 'le-gen-label', textContent: text });
+  return h('section', { className: 'le-section le-generate', 'aria-label': 'Generate level' },
+    h('h3', {}, '🎲 Generate level'),
+    h('p', { className: 'le-hint' },
+      "Builds a path, furniture and waves from these settings. Then it's a normal level: tweak it by hand, Save, Play."),
+    h('div', { className: 'le-gen-grid' },
+      h('div', {},
+        lbl('Size'),
+        segmented('Size', Object.entries(SIZES).map(([k, [c, r]]) => [k, `${SIZE_LABELS[k] ?? cap(k)} ${c}×${r}`]),
+          g.size, (v) => set({ size: v })),
+        lbl('Difficulty'),
+        segmented('Difficulty', DIFFICULTIES.map((d) => [d, cap(d)]), g.difficulty, (v) => set({ difficulty: v })),
+        lbl('Path'),
+        h('div', { className: 'le-gen-row' }, h('span', { textContent: 'Straight' }), twisty, h('span', { textContent: 'Twisty' })),
+        lbl('Waves'),
+        h('div', { className: 'le-gen-row' }, waves, h('span', { textContent: 'waves (1–20)' }))),
+      h('div', {},
+        lbl('Guests in this level'),
+        chipGroup('guests'),
+        lbl('Weapons in this level'),
+        chipGroup('weapons'))),
+    h('div', { className: 'le-gen-actions' },
+      h('button', {
+        type: 'button', className: 'le-generate-btn', textContent: '🎲 Generate', disabled: !check.ok,
+        title: check.ok ? 'Generate a new random level from these settings' : check.reason, onclick: generate,
+      }),
+      h('button', {
+        type: 'button', className: 'secondary le-reroll-btn', textContent: '↻ Re-roll',
+        disabled: !check.ok || g.seed === null,
+        title: g.seed === null ? 'Generate a level first' : 'Same settings, new random party', onclick: generate,
+      }),
+      g.seed === null ? null : h('output', { className: 'le-seed', 'aria-label': 'Seed', textContent: `Party #${g.seed}` })),
+    check.ok ? null : h('p', { className: 'le-reasons', role: 'status', textContent: check.reason }));
 }
 
 function weaponsSection() {
@@ -426,7 +724,7 @@ function weaponsSection() {
   const chosen = Array.isArray(ed.draft.weaponIds) ? ed.draft.weaponIds : [];
   const missing = chosen.filter((id) => !weapons.some((w) => w.id === id));
   const boxes = [];
-  const onchange = () => update(setWeapons(ed.draft, boxes.filter((b) => b.checked).map((b) => b.dataset.id)), { render: [] });
+  const onchange = () => update(setWeapons(ed.draft, boxes.filter((b) => b.checked).map((b) => b.dataset.id)), { render: ['generate'] });
   const option = (id, ...label) => {
     const box = h('input', { type: 'checkbox', checked: chosen.includes(id), onchange, dataset: { id } });
     boxes.push(box);
@@ -446,13 +744,16 @@ function weaponsSection() {
       : h('p', { className: 'muted' }, 'No weapons yet — create one on the Weapons tab first.'));
 }
 
+// Listed guests that exist in the catalog: the only ones the wave editor offers.
+const listedEnemies = () => guestList().map((id) => catalog().enemies.find((e) => e.id === id)).filter(Boolean);
+
 function wavesSection() {
-  const enemies = catalog().enemies;
+  const enemies = listedEnemies();
   const waves = Array.isArray(ed.draft.waves) ? ed.draft.waves : [];
   const total = waves.flat().reduce((n, g) => n + (Number.isFinite(g?.count) ? g.count : 0), 0);
   return h('section', { className: 'le-section le-waves', 'aria-label': 'Waves' },
     h('h3', {}, `Waves (${waves.length})${total ? ` · ${total} guests in total` : ''}`),
-    enemies.length ? null : h('p', { className: 'muted' }, 'No guests yet — create one on the Enemies tab first.'),
+    enemies.length ? null : h('p', { className: 'muted' }, 'Put guests on the guest list first.'),
     waves.length
       ? h('ol', { className: 'le-wave-list' }, waves.map((wave, wi) => waveCard(wave, wi, waves.length, enemies)))
       : h('p', { className: 'muted' }, 'No waves yet.'),
@@ -466,8 +767,9 @@ function wavesSection() {
 
 function waveCard(wave, wi, count, enemies) {
   const label = `Wave ${wi + 1}`;
-  const summary = h('span', { className: 'le-wave-summary', textContent: waveSummary(wave, enemies) });
-  const refreshSummary = () => { summary.textContent = waveSummary(ed.draft.waves[wi], enemies); };
+  const all = catalog().enemies; // the summary shows every known guest's sprite, listed or not
+  const summary = h('span', { className: 'le-wave-summary', textContent: waveSummary(wave, all) });
+  const refreshSummary = () => { summary.textContent = waveSummary(ed.draft.waves[wi], all); };
   const structural = (next) => update(next, { render: ['waves'] });
   const btn = (text, title, disabled, onclick) => h('button', {
     type: 'button', className: 'secondary le-icon', textContent: text, title, 'aria-label': title, disabled, onclick,
@@ -506,7 +808,11 @@ function groupRow(g, wi, gi, enemies, refreshSummary, structural) {
   const select = h('select', { 'aria-label': `${at}: guest`, onchange: () => set({ enemyId: select.value }) },
     enemies.map((e) => h('option', { value: e.id, textContent: `${e.sprite ?? ''} ${e.name ?? e.id}`.trim() })),
     enemies.some((e) => e.id === g.enemyId) ? null
-      : h('option', { value: String(g.enemyId), textContent: `'${g.enemyId}' (no longer exists)` }));
+      : h('option', {
+        value: String(g.enemyId),
+        textContent: catalog().enemies.some((e) => e.id === g.enemyId)
+          ? `${guestName(g.enemyId)} (not on the guest list)` : `'${g.enemyId}' (no longer exists)`,
+      }));
   select.value = String(g.enemyId);
   const num = (key, name, attrs) => h('td', {}, numberInput(
     () => ed.draft.waves?.[wi]?.[gi]?.[key], (n) => set({ [key]: n }), { 'aria-label': `${at}: ${name}`, ...attrs }));
