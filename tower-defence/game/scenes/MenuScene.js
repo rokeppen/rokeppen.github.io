@@ -2,6 +2,7 @@
 // Up to 5 levels: one column. More: two columns of 5 per page, with page arrows.
 import { PALETTE, FONT, EMOJI_FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../theme.js';
 import { loadStars } from '../progress.js';
+import { isRightButton } from '../ui/widgets.js';
 
 const KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'];
 const ROWS = 5;
@@ -47,7 +48,7 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0, 1).setInteractive({ useHandCursor: true });
     back.on('pointerover', () => back.setColor(css(PALETTE.hudText)));
     back.on('pointerout', () => back.setColor(css(PALETTE.hudMuted)));
-    back.on('pointerup', () => { window.location.href = './'; });
+    back.on('pointerup', (p) => { if (!isRightButton(p)) window.location.href = './'; });
   }
 
   get perPage() {
@@ -86,7 +87,7 @@ export class MenuScene extends Phaser.Scene {
     const t = this.add.text(x, y, label, {
       fontFamily: FONT, fontSize: '20px', color: css(PALETTE.accent),
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    t.on('pointerup', onClick);
+    t.on('pointerup', (p) => { if (!isRightButton(p)) onClick(); });
     this.pageObjects.push(t);
   }
 
@@ -100,7 +101,7 @@ export class MenuScene extends Phaser.Scene {
     if (text.width > w - 24) text.setScale((w - 24) / text.width);
     bg.on('pointerover', () => { bg.setFillStyle(PALETTE.path); text.setColor(css(PALETTE.accent)); });
     bg.on('pointerout', () => { bg.setFillStyle(PALETTE.hudBar); text.setColor(css(PALETTE.hudText)); });
-    bg.on('pointerup', onClick);
+    bg.on('pointerup', (p) => { if (!isRightButton(p)) onClick(); });
     this.pageObjects.push(bg, text);
     return bg;
   }

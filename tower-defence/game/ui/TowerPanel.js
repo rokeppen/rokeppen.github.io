@@ -1,10 +1,16 @@
 // Side panel, bottom half. Shows the selected tower (stats, Upgrade, Sell), otherwise the
 // weapon being placed or hovered, otherwise a short how-to-play. Keys: U upgrade, S sell.
-import { PALETTE, HUD_HEIGHT, SIDE_WIDTH, TILE } from '../theme.js';
+// Upgrade/Sell are anchored to the bottom of the side panel, so they always stay on canvas.
+import { PALETTE, SIDE_WIDTH } from '../theme.js';
 import { weaponStats, upgradeCost } from '../logic/stats.js';
+import { sellRefund } from '../logic/state.js';
 import { Button, label } from './widgets.js';
 
 const DEPTH = 10;
+// Vertical space the panel needs below the build menu: header, stats, effect line and the
+// bottom-anchored buttons. BuildMenu never grows into it.
+export const TOWER_PANEL_HEIGHT = 350;
+const BUTTONS_HEIGHT = 116; // Upgrade + Sell + key hint, measured up from `bottom`
 const HELP = [
   'Guests crashed the drinks!',
   '',
@@ -35,10 +41,10 @@ export function effectText(weapon, stats) {
 export class TowerPanel {
   constructor(scene, top) {
     this.scene = scene;
-    this.x = scene.level.cols * TILE + 16;
+    this.x = scene.layout.sideX + 16;
     this.top = top + 4;
     this.width = SIDE_WIDTH - 32;
-    this.bottom = HUD_HEIGHT + scene.level.rows * TILE - 12;
+    this.bottom = scene.layout.height - 12;
     scene.add.rectangle(this.x - 4, this.top - 8, this.width + 8, 2, PALETTE.panelEdge).setOrigin(0).setDepth(DEPTH);
     this.objects = [];
     this.buttons = [];
@@ -162,21 +168,22 @@ export class TowerPanel {
     }
     const statText = this.add(label(scene, x, y, lines.join('\n'), { size: 14, lineSpacing: 2 }));
     y += statText.height + 2;
+    const buttonsTop = this.bottom - BUTTONS_HEIGHT;
     const effect = this.add(label(scene, x, y, effectText(weapon, stats), {
       size: 13, color: PALETTE.hudMuted, wordWrap: { width: this.width },
     }));
-    y += effect.height + 10;
+    if (y + effect.height > buttonsTop - 4) effect.setVisible(false); // never under the buttons
 
     const bw = this.width;
     const cx = x + bw / 2;
+    const b = this.bottom;
     const upLabel = cost === null ? 'Fully upgraded ★' : `⬆ Upgrade (${cost} 🍾)`;
-    const up = new Button(scene, cx, y + 20, bw, 40, upLabel, () => this.upgrade(), { size: 16 });
+    const up = new Button(scene, cx, b - 96, bw, 40, upLabel, () => this.upgrade(), { size: 16 });
     up.setEnabled(cost !== null && scene.state.corks >= cost && !scene.state.over);
-    const refund = Math.floor(tower.spent / 2);
-    const sell = new Button(scene, cx, y + 68, bw, 40, `Sell (+${refund} 🍾)`, () => this.sell(), { size: 16 });
+    const sell = new Button(scene, cx, b - 48, bw, 40, `Sell (+${sellRefund(tower)} 🍾)`, () => this.sell(), { size: 16 });
     sell.setEnabled(!scene.state.over);
     this.buttons.push(up, sell);
-    this.add(label(scene, cx, y + 96, '[U] upgrade · [S] sell · Esc close', { size: 12, color: PALETTE.hudMuted }))
+    this.add(label(scene, cx, b - 22, '[U] upgrade · [S] sell · Esc close', { size: 12, color: PALETTE.hudMuted }))
       .setOrigin(0.5, 0);
   }
 }

@@ -9,6 +9,11 @@ export const HUD_HEIGHT = 64;
 // Width of the side panel right of the board (build menu + tower panel).
 export const SIDE_WIDTH = 256;
 
+// Smallest in-level canvas: keeps the HUD readable and the side panel tall enough for
+// the build menu plus the tower panel. Small boards are centred inside it.
+export const MIN_GAME_WIDTH = 1280;
+export const MIN_GAME_HEIGHT = 720;
+
 // Canvas size outside a level (boot + menu). GameScene resizes to fit its level.
 export const MENU_WIDTH = 1024;
 export const MENU_HEIGHT = 704;

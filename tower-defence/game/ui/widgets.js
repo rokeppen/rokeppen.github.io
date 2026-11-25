@@ -10,6 +10,12 @@ export function label(scene, x, y, text, { size = 18, color = PALETTE.hudText, b
   });
 }
 
+// True when a pointer event came from the right mouse button (Phaser sets `button` to the
+// button pressed or released). Right-click means "cancel" in this game, never "press".
+export function isRightButton(pointer) {
+  return !!pointer && pointer.button === 2;
+}
+
 // A rectangle button. `enabled` is visual only: clicks still reach onClick, so the caller can
 // explain with a toast why nothing happened.
 export class Button {
@@ -25,7 +31,9 @@ export class Button {
     this.text = label(scene, x, y, text, { size }).setOrigin(0.5).setDepth(depth);
     this.bg.on('pointerover', () => { this.hover = true; this.refresh(); });
     this.bg.on('pointerout', () => { this.hover = false; this.refresh(); });
-    this.bg.on('pointerup', () => onClick());
+    this.bg.on('pointerup', (pointer) => {
+      if (!isRightButton(pointer)) onClick();
+    });
   }
 
   setText(text) {

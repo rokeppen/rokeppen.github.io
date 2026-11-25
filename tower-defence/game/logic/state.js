@@ -75,7 +75,7 @@ export class GameState {
     if (this.over) return { ok: false, reason: 'game-over' };
     const i = this.towers.findIndex((t) => t.id === towerId);
     if (i < 0) return { ok: false, reason: 'unknown' };
-    const refund = Math.floor(this.towers[i].spent / 2);
+    const refund = sellRefund(this.towers[i]);
     this.towers.splice(i, 1);
     this.corks += refund;
     return { ok: true, refund };
@@ -232,6 +232,11 @@ export class GameState {
   posOf(e) {
     return positionAt(this.level.path, e.distance);
   }
+}
+
+// Corks returned when selling a tower: half of everything spent on it, rounded down.
+export function sellRefund(tower) {
+  return Math.floor(tower.spent / 2);
 }
 
 function key(p) {

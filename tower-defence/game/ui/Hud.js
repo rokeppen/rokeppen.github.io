@@ -17,18 +17,19 @@ export class Hud {
     const name = scene.level.name.length > 22 ? `${scene.level.name.slice(0, 21)}…` : scene.level.name;
     this.name = label(scene, 16, mid, name, { size: 16, color: PALETTE.hudMuted })
       .setOrigin(0, 0.5).setDepth(depth);
-    let x = 16 + Math.max(this.name.width, 90) + 24;
-    this.corks = label(scene, x, mid, '', { size: 24, bold: true, color: PALETTE.accent })
+    // Stats flow left to right (see reflow), so a big cork count pushes the rest along.
+    this.statsX = 16 + Math.max(this.name.width, 90) + 24;
+    this.corks = label(scene, 0, mid, '', { size: 24, bold: true, color: PALETTE.accent })
       .setOrigin(0, 0.5).setDepth(depth);
-    this.wine = label(scene, x + 120, mid, '', { size: 24, bold: true })
+    this.wine = label(scene, 0, mid, '', { size: 24, bold: true })
       .setOrigin(0, 0.5).setDepth(depth);
-    this.wave = label(scene, x + 220, mid, '', { size: 20 }).setOrigin(0, 0.5).setDepth(depth);
-    this.preview = label(scene, x + 340, mid, '', { size: 16, color: PALETTE.hudMuted })
+    this.wave = label(scene, 0, mid, '', { size: 20 }).setOrigin(0, 0.5).setDepth(depth);
+    this.preview = label(scene, 0, mid, '', { size: 16, color: PALETTE.hudMuted })
       .setOrigin(0, 0.5).setDepth(depth);
 
     // Right-aligned buttons, laid out from the right edge.
     const h = 42;
-    x = width - 12;
+    let x = width - 12;
     const place = (w) => { x -= w; const cx = x + w / 2; x -= 8; return cx; };
     this.levelsButton = new Button(scene, place(48), mid, 48, h, '☰', () => scene.backToMenu(), { size: 20 });
     this.muteButton = new Button(scene, place(48), mid, 48, h, '', () => this.toggleMute(), { size: 20 });
@@ -36,6 +37,7 @@ export class Hud {
     this.bellButton = new Button(scene, place(176), mid, 176, h, '🔔 Victory Bell', () => this.ringBell(),
       { fill: PALETTE.path });
     this.waveButton = new Button(scene, place(156), mid, 156, h, '', () => this.nextWave(), { size: 18 });
+    this.buttonsLeft = x; // stats must end before this
 
     const kb = scene.input.keyboard;
     if (kb) {
@@ -78,17 +80,24 @@ export class Hud {
   // Called every frame; only touches game objects when a value changed.
   update() {
     const { state, sfx } = this.scene;
+    let dirty = false;
     this.set('corks', `🍾 ${state.corks}`, (v, prev) => {
       this.corks.setText(v);
+      dirty = true;
       if (prev !== undefined) this.bump(this.corks);
     });
     this.set('wine', state.wine, (v, prev) => {
       this.wine.setText(`🍷 ${v}`);
       this.wine.setColor(v <= Math.ceil(state.level.startingWine * 0.3) ? css(PALETTE.danger) : css(PALETTE.hudText));
+      dirty = true;
       if (prev !== undefined && v < prev) this.bump(this.wine);
     });
-    this.set('wave', `Wave ${state.waveIndex}/${state.totalWaves}`, (v) => this.wave.setText(v));
-    this.set('preview', state.phase === 'build' ? this.nextWavePreview() : '', (v) => this.preview.setText(v));
+    this.set('wave', `Wave ${state.waveIndex}/${state.totalWaves}`, (v) => { this.wave.setText(v); dirty = true; });
+    this.set('preview', state.phase === 'build' ? this.nextWavePreview() : '', (v) => {
+      this.preview.setText(v);
+      dirty = true;
+    });
+    if (dirty) this.reflow();
 
     const building = state.phase === 'build';
     this.waveButton.setEnabled(building)
@@ -97,6 +106,22 @@ export class Hud {
       .setText(state.bellUsed ? '🔔 Bell rung' : '🔔 Victory Bell');
     this.speedButton.setText(this.scene.speed === 2 ? '⏩ 2×' : '▶ 1×');
     this.muteButton.setText(sfx && sfx.muted ? '🔇' : '🔊');
+  }
+
+  // Lay the stats out left to right with minimum slots (so they don't jitter as numbers
+  // change), then shrink the preview, and if needed the whole row, to end before the buttons.
+  reflow() {
+    const gap = 22;
+    const slots = [[this.corks, 110], [this.wine, 72], [this.wave, 96]];
+    let x = this.statsX;
+    for (const [text, min] of slots) {
+      text.x = x;
+      x += Math.max(text.width, min) + gap;
+    }
+    this.preview.x = x;
+    const room = this.buttonsLeft - 12 - x;
+    this.preview.setScale(this.preview.width > room ? Math.max(room, 0) / this.preview.width : 1);
+    this.preview.setVisible(room >= 40);
   }
 
   set(key, value, apply) {

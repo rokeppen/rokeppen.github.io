@@ -4,7 +4,8 @@
 //   scene.state                      the GameState (read corks, wine, phase, towers, ...)
 //   scene.level, scene.weapons       level definition, Map weaponId -> Weapon
 //   scene.enemyDefs                  Map enemyId -> Enemy
-//   scene.layout                     { boardX, boardY, boardWidth, width, height } in canvas pixels
+//   scene.layout                     { boardX, boardY, boardWidth, boardHeight, sideX, width, height }
+//                                    in canvas pixels (side panel spans sideX..width, HUD_HEIGHT..height)
 //   scene.selectWeapon(id|null)      choose a weapon to place (null cancels)
 //   scene.selectTower(id|null)       choose a placed tower (range shown)
 //   scene.selectedWeaponId / selectedTowerId / hoverWeaponId
@@ -18,7 +19,7 @@
 import { GameState } from '../logic/state.js';
 import { positionAt } from '../logic/path.js';
 import { weaponStats } from '../logic/stats.js';
-import { PALETTE, TILE, HUD_HEIGHT, SIDE_WIDTH, FONT, EMOJI_FONT, css, rgb } from '../theme.js';
+import { PALETTE, TILE, HUD_HEIGHT, SIDE_WIDTH, MIN_GAME_WIDTH, MIN_GAME_HEIGHT, FONT, EMOJI_FONT, css, rgb } from '../theme.js';
 import { Hud } from '../ui/Hud.js';
 import { BuildMenu } from '../ui/BuildMenu.js';
 import { TowerPanel } from '../ui/TowerPanel.js';
@@ -101,14 +102,22 @@ export class GameScene extends Phaser.Scene {
 
   // --- layout & coordinates ---
 
+  // The canvas is at least MIN_GAME_WIDTH x MIN_GAME_HEIGHT; a smaller board is centred in
+  // the area left of the side panel. Large boards simply grow the canvas (Scale.FIT shrinks it).
   computeLayout(level) {
     const boardWidth = level.cols * TILE;
+    const boardHeight = level.rows * TILE;
+    const width = Math.max(MIN_GAME_WIDTH, boardWidth + SIDE_WIDTH);
+    const height = Math.max(MIN_GAME_HEIGHT, HUD_HEIGHT + boardHeight);
+    const sideX = width - SIDE_WIDTH;
     return {
-      boardX: 0,
-      boardY: HUD_HEIGHT,
+      boardX: Math.floor((sideX - boardWidth) / 2),
+      boardY: HUD_HEIGHT + Math.floor((height - HUD_HEIGHT - boardHeight) / 2),
       boardWidth,
-      width: boardWidth + SIDE_WIDTH,
-      height: HUD_HEIGHT + level.rows * TILE,
+      boardHeight,
+      sideX,
+      width,
+      height,
     };
   }
 
@@ -166,7 +175,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   toast(text, color = PALETTE.hudText) {
-    toast(this, this.layout.boardWidth / 2, HUD_HEIGHT + 24, text, color);
+    const { boardX, boardWidth } = this.layout;
+    toast(this, boardX + boardWidth / 2, HUD_HEIGHT + 24, text, color);
   }
 
   toastReason(reason) {
@@ -329,9 +339,10 @@ export class GameScene extends Phaser.Scene {
       i++;
     }
 
-    const cx = this.layout.boardWidth / 2;
-    const cy = HUD_HEIGHT + (this.level.rows * TILE) / 2;
-    this.shots.push({ kind: 'ring', x: cx, y: cy, r: Math.max(this.layout.boardWidth, this.level.rows * TILE), ttl: 0.6, max: 0.6, color: PALETTE.accent, grow: true });
+    const { boardX, boardY, boardWidth, boardHeight } = this.layout;
+    const cx = boardX + boardWidth / 2;
+    const cy = boardY + boardHeight / 2;
+    this.shots.push({ kind: 'ring', x: cx, y: cy, r: Math.max(boardWidth, boardHeight), ttl: 0.6, max: 0.6, color: PALETTE.accent, grow: true });
     const bell = this.add.text(cx, cy - 30, '🔔', { fontFamily: EMOJI_FONT, fontSize: '96px', padding: { x: 4, y: 12 } })
       .setOrigin(0.5, 0.2).setDepth(DEPTH.effects + 1).setScale(0.2);
     this.tweens.add({ targets: bell, scale: 1, duration: 250, ease: 'Back.easeOut' });
