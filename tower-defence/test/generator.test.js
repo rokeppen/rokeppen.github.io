@@ -261,20 +261,23 @@ test('the toughest guest only appears in the later half of the waves', () => {
   }
 });
 
-// Plays a level with no towers: start every wave as soon as it can, until won or lost.
-function playWithoutTowers(lvl, catalog) {
-  const game = new GameState(lvl, catalog, { rng: () => 0.5 });
-  for (let i = 0; i < 20000 && !game.over; i++) {
-    if (game.phase === 'build') game.startNextWave();
-    game.tick(0.25);
+// Idle play on the turn engine: end every turn at once until the game is over.
+function playIdle(lvl, catalog) {
+  const full = { ...lvl, id: 'x', published: false, sortOrder: 0 };
+  const game = new GameState(full, catalog, { rng: () => 0.5 });
+  let turns = 0;
+  while (!game.over && turns < 2000) {
+    game.endTurn();
+    turns++;
   }
-  return game.phase;
+  return { phase: game.phase, reason: game.endReason, turns };
 }
 
-test('short levels cannot be won without placing a weapon', { todo: 'updated in Task 3' }, () => {
+const gridCases = () => [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]];
+
+test('RF3: short levels cannot be won without placing a weapon', () => {
   const t0 = Date.now();
-  const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]];
-  for (const [catalog, lists] of cases) {
+  for (const [catalog, lists] of gridCases()) {
     for (let seed = 0; seed < 10; seed++) {
       for (const size of Object.keys(SIZES)) {
         for (const difficulty of DIFFICULTIES) {
@@ -283,14 +286,36 @@ test('short levels cannot be won without placing a weapon', { todo: 'updated in 
             const lvl = generateLevel(opts, catalog);
             const maxWine = { chill: 20, party: 12, chaos: 8 }[difficulty];
             assert.ok(Number.isInteger(lvl.startingWine) && lvl.startingWine >= 1 && lvl.startingWine <= maxWine);
-            const phase = playWithoutTowers(lvl, catalog);
-            assert.equal(phase, 'lost', JSON.stringify({ guests: lists.enemyIds, size, difficulty, waves, seed: opts.seed }));
+            const r = playIdle(lvl, catalog);
+            const what = JSON.stringify({ guests: lists.enemyIds, size, difficulty, waves, seed: opts.seed, ...r });
+            assert.equal(r.phase, 'lost', what);
+            assert.equal(r.reason, 'kegs', what);
           }
         }
       }
     }
   }
   console.log(`no-tower runs: ${Date.now() - t0} ms`);
+});
+
+test('RF5: idle play on the RF3 grid subset ends within 500 turns', () => {
+  const t0 = Date.now();
+  for (const [catalog, lists] of gridCases()) {
+    for (let seed = 0; seed < 5; seed++) {
+      for (const size of Object.keys(SIZES)) {
+        for (const difficulty of DIFFICULTIES) {
+          for (const waves of [1, 6]) {
+            const opts = { ...lists, size, difficulty, twistiness: 0.5, waves, seed: seed * 7919 + 13 };
+            const r = playIdle(generateLevel(opts, catalog), catalog);
+            const what = JSON.stringify({ guests: lists.enemyIds, size, difficulty, waves, seed: opts.seed, ...r });
+            assert.ok(r.turns <= 500, what);
+            assert.equal(r.phase, 'lost', what);
+          }
+        }
+      }
+    }
+  }
+  console.log(`idle 500-turn runs: ${Date.now() - t0} ms`);
 });
 
 test('starting resources', () => {
