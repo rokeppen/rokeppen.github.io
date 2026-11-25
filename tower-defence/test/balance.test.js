@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { prepareGameData } from '../shared/model.js';
-import { runGame, playSensibly, weaponScore } from '../game/logic/bot.js';
+import { runGame, playSensibly, playMixed, pickSupport, weaponScore, pathCoverage, supportTileFor } from '../game/logic/bot.js';
 import { GameState } from '../game/logic/state.js';
 
 const raw = JSON.parse(readFileSync(new URL('../fallback-data.json', import.meta.url), 'utf8'));
@@ -62,6 +62,119 @@ test('level 2 has tension: the sensible bot loses at least 1 keg in a late wave'
     const { kegsLostByWave } = runGame(l2, catalog, { rng: lcg(seed) });
     const late = kegsLostByWave.slice(Math.floor(kegsLostByWave.length / 2));
     assert.ok(late.reduce((a, b) => a + b, 0) >= 1, JSON.stringify(kegsLostByWave));
+  }
+});
+
+// --- economy: support and splash are worth buying ---
+
+const level1 = data.levels.find((l) => l.id === 'level-1');
+const level2 = data.levels.find((l) => l.id === 'level-2');
+
+// Free towers placed before turn 1 (the first on the best-covered tile, a `near` one as a
+// support next to the first), then only End turn with endless kegs. Returns the hp removed.
+function damageDealt(level, placements, { dropFirst = false } = {}) {
+  const s = new GameState({ ...level, startingWine: 1e6 }, catalog, { rng: () => 0.5 });
+  s.corks = 1e9;
+  for (const p of placements) {
+    const w = s.weaponDefs.get(p.id);
+    let tile = null;
+    if (p.near) tile = supportTileFor(s, s.towers[0], w);
+    else {
+      for (let y = 0; y < level.rows; y++) {
+        for (let x = 0; x < level.cols; x++) {
+          if (s.tileType(x, y) !== 'buildable') continue;
+          const cover = pathCoverage(s, x, y, w.range);
+          if (cover > 0 && (!tile || cover > tile.cover)) tile = { x, y, cover };
+        }
+      }
+    }
+    s.actionsLeft = 3;
+    assert.ok(s.placeTower(tile.x, tile.y, p.id).ok, p.id);
+  }
+  if (dropFirst) s.towers.shift(); // the support alone, on the tile it had next to the damage tower
+  const maxHp = new Map();
+  const left = new Map();
+  while (!s.over) {
+    const { events } = s.endTurn();
+    for (const e of events) if (e.type === 'spawn') maxHp.set(e.id, s.enemyDefs.get(e.enemyId).hp);
+    for (const e of events) if (e.type === 'kill') left.set(e.id, 0);
+    for (const g of s.enemies) left.set(g.id, Math.max(0, g.hp));
+  }
+  let dealt = 0;
+  for (const [id, hp] of maxHp) dealt += hp - (left.has(id) ? left.get(id) : hp);
+  return dealt;
+}
+
+test('on level 2 the mixed bot beats the best single-weapon bot (HR Talk only)', () => {
+  for (const seed of SEEDS) {
+    const single = runGame(level2, catalog, { only: ['hr-talk'], rng: lcg(seed) });
+    const mixed = runGame(level2, catalog, { bot: 'mixed', rng: lcg(seed) });
+    assert.equal(mixed.phase, 'won', JSON.stringify(mixed));
+    assert.ok(Object.keys(mixed.towers).length >= 2, `mixed builds a mix: ${JSON.stringify(mixed.towers)}`);
+    assert.ok(mixed.wine > single.wine || (mixed.wine === single.wine && mixed.turn < single.turn),
+      `mixed ${JSON.stringify(mixed)} vs HR only ${JSON.stringify(single)}`);
+  }
+});
+
+test('the mixed bot backs splash with the Café and single-target towers with Pizza Hut', () => {
+  const ws = (...ids) => ids.map((id) => catalog.weapons.find((w) => w.id === id));
+  const all = ws('out-of-office', 'coffee-machine', 'cafe', 'pizza-hut', 'hr-talk');
+  assert.equal(pickSupport(all, ws('hr-talk')[0]).id, 'cafe');
+  assert.equal(pickSupport(all, ws('out-of-office')[0]).id, 'pizza-hut');
+  assert.equal(pickSupport(ws('hr-talk', 'coffee-machine'), ws('hr-talk')[0]).id, 'coffee-machine', 'falls back');
+});
+
+test('HR Talk alone wins level 1 within its turn target', () => {
+  for (const seed of SEEDS) {
+    const r = runGame(level1, catalog, { only: ['hr-talk'], rng: lcg(seed) });
+    assert.equal(r.phase, 'won', JSON.stringify(r));
+    assert.ok(r.turn <= MAX_WIN_TURNS['level-1'], `took ${r.turn} turns`);
+    assert.deepEqual(Object.keys(r.towers), ['hr-talk']);
+  }
+});
+
+test('against a crowd, HR Talk deals more damage than Out-of-Office for the same caps', () => {
+  const crowd = { ...level2, waves: [level2.waves[level2.waves.length - 1]] };
+  const hr = catalog.weapons.find((w) => w.id === 'hr-talk');
+  const ooo = catalog.weapons.find((w) => w.id === 'out-of-office');
+  const n = Math.floor(hr.cost / ooo.cost);
+  assert.ok(n >= 1);
+  const hrDamage = damageDealt(crowd, [{ id: 'hr-talk' }]);
+  const oooDamage = damageDealt(crowd, Array.from({ length: n }, (_, i) => ({ id: 'out-of-office', near: i > 0 })));
+  assert.ok(hrDamage > oooDamage, `HR ${hrDamage} vs ${n} OOO ${oooDamage}`);
+});
+
+// The tough guests of level 2 walking level 2's path.
+const tanks = { ...level2, waves: [
+  [{ enemyId: 'facilities-guy', count: 6, intervalS: 1, delayS: 0 }],
+  [{ enemyId: 'wine-snob', count: 6, intervalS: 0.5, delayS: 0 }],
+] };
+
+for (const support of ['coffee-machine', 'cafe', 'pizza-hut']) {
+  for (const damage of ['out-of-office', 'hr-talk']) {
+    test(`${support} next to ${damage} adds more damage than it deals by itself`, () => {
+      const alone = damageDealt(tanks, [{ id: damage }]);
+      const supportOnly = damageDealt(tanks, [{ id: damage }, { id: support, near: true }], { dropFirst: true });
+      const pair = damageDealt(tanks, [{ id: damage }, { id: support, near: true }]);
+      assert.ok(pair - supportOnly > alone, `${damage} ${alone}, ${support} alone ${supportOnly}, together ${pair}`);
+    });
+  }
+}
+
+test('the mixed bot builds 1 support after every 2 damage towers', () => {
+  const s = new GameState(level2, catalog, { rng: () => 0.5 });
+  s.corks = 10000;
+  for (let i = 0; i < 2; i++) { playMixed(s); s.actionsLeft = 3; }
+  const kinds = s.towers.map((t) => catalog.weapons.find((w) => w.id === t.weaponId).effect);
+  const supports = kinds.filter((k) => ['slow', 'distract', 'lure'].includes(k)).length;
+  assert.equal(s.towers.length, 6);
+  assert.equal(supports, 2, kinds.join(','));
+  assert.equal(s.bellUsed, false);
+});
+
+test('crowding: no starter-level group spawns more than 5 guests per turn (intervalS >= 0.2)', () => {
+  for (const level of data.levels) {
+    for (const wave of level.waves) for (const g of wave) assert.ok(g.intervalS >= 0.2, `${level.id} ${g.enemyId} ${g.intervalS}`);
   }
 });
 
