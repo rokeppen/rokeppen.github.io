@@ -27,7 +27,7 @@ import {
 import { Hud } from '../ui/Hud.js';
 import { BuildMenu } from '../ui/BuildMenu.js';
 import { TowerPanel } from '../ui/TowerPanel.js';
-import { toast, reasonText, label, icon } from '../ui/widgets.js';
+import { toast, reasonText, label, icon, barIcon } from '../ui/widgets.js';
 import {
   addBackground, addBoardBase, addPiece, addCard, bakeBoardTextures, snap, PIECES, TEX, HP_W,
 } from '../ui/textures.js';
@@ -100,7 +100,13 @@ export class GameScene extends Phaser.Scene {
     const clip = this.make.graphics({ x: 0, y: 0, add: false });
     clip.fillStyle(0xffffff, 1);
     clip.fillRect(boardX - BOARD_PAD, boardY - BOARD_PAD, boardWidth + 2 * BOARD_PAD, boardHeight + 2 * BOARD_PAD);
-    this.hoverGfx.setMask(clip.createGeometryMask());
+    const mask = clip.createGeometryMask();
+    this.hoverGfx.setMask(mask);
+    // The clip shape isn't on the display list, so the scene won't free it: do it on shutdown.
+    this.events.once('shutdown', () => {
+      mask.destroy();
+      clip.destroy();
+    });
     this.effectsGfx = this.add.graphics().setDepth(DEPTH.effects);
     this.installPointer();
 
@@ -454,7 +460,7 @@ export class GameScene extends Phaser.Scene {
     // The beer bar: a gold block with the level's bar sprite (image or emoji, 🍻 by default).
     const e = this.tileCentre(end.x, end.y);
     addPiece(this, 'bar', e.x, e.y).setDepth(DEPTH.table);
-    icon(this, e.x, e.y - PIECES.bar.lift, this.level.barSprite, '🍻', 32).setDepth(DEPTH.table);
+    barIcon(this, e.x, e.y - PIECES.bar.lift, this.level.barSprite, 32).setDepth(DEPTH.table);
   }
 
   // --- dynamic sprites ---
@@ -607,7 +613,7 @@ export class GameScene extends Phaser.Scene {
     text.setY(-h / 2);
     const container = this.add.container(0, 0, [bg, text]).setDepth(DEPTH.bubbles).setAlpha(0);
     this.tweens.add({ targets: container, alpha: 1, duration: 150 });
-    this.bubbles.set(ev.id, { container, width: w, until: this.time.now + BUBBLE_MS });
+    this.bubbles.set(ev.id, { container, width: w, height: h, until: this.time.now + BUBBLE_MS });
     this.updateBubbles();
   }
 
@@ -625,10 +631,12 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       if (!s) continue; // spawned this frame; its sprite appears on the next sync
-      // Tail tip just above the HP bar; keep the bubble over the board horizontally.
+      // Tail tip just above the HP bar; keep the bubble over the board horizontally and below
+      // the HUD vertically (the container's y is the bubble's bottom edge).
       const half = b.width / 2;
       const x = Math.min(Math.max(s.container.x, boardX + half - 6), boardX + boardWidth - half + 6);
-      b.container.setPosition(x, s.container.y + s.faceY - PIECES.guest.h / 2 - 22);
+      const y = Math.max(s.container.y + s.faceY - PIECES.guest.h / 2 - 22, HUD_HEIGHT + 4 + b.height);
+      b.container.setPosition(x, y);
     }
   }
 

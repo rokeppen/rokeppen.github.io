@@ -1,6 +1,7 @@
 // Small UI building blocks shared by the HUD, build menu, tower panel, menu and end scene.
 import { PALETTE, FONT, EMOJI_FONT, css } from '../theme.js';
 import { makeSprite } from '../sprites.js';
+import { isImageSprite } from '../sprites-data.js';
 import { addCard, setCardStyle, snap, CARD_PAD } from './textures.js';
 
 export const UI_FONT = `${FONT}, ${EMOJI_FONT}`;
@@ -18,6 +19,14 @@ export function icon(scene, x, y, sprite, fallback, size) {
   const o = makeSprite(scene, x, y, sprite, fallback, size);
   if (typeof o.setPadding === 'function') o.setPadding(2, 6);
   return o;
+}
+
+// The beer bar icon. Levels only store `barSprite`: an emoji is its own fallback, an image
+// URL falls back to 🍻 (makeSprite prefers an emoji fallback, so passing 🍻 for an emoji
+// barSprite would hide it).
+export function barIcon(scene, x, y, barSprite, size) {
+  const fallback = isImageSprite(barSprite) ? '🍻' : (barSprite || '🍻');
+  return icon(scene, x, y, barSprite || '🍻', fallback, size);
 }
 
 // True when a pointer event came from the right mouse button (Phaser sets `button` to the

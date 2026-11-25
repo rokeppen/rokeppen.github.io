@@ -4,7 +4,7 @@
 // localStorage. A "how to play" overlay opens on the first launch and from the "?" button.
 import { PALETTE, FONT, EMOJI_FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../theme.js';
 import { loadStars, loadBest, howToSeen, markHowToSeen } from '../progress.js';
-import { isRightButton, label, icon, Button } from '../ui/widgets.js';
+import { isRightButton, label, icon, barIcon, Button } from '../ui/widgets.js';
 import { addBackground, addCard, CARD_PAD } from '../ui/textures.js';
 
 const KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'];
@@ -135,7 +135,7 @@ export class MenuScene extends Phaser.Scene {
     const outline = addCard(this, x, y, w, BUTTON_H, 'select').setVisible(false);
     const left = x - w / 2;
     const tile = addCard(this, left + 32, y, 38, 38, 'icon');
-    const bar = icon(this, left + 32, y, level.barSprite, '🍻', 24);
+    const bar = barIcon(this, left + 32, y, level.barSprite, 24);
     const text = this.add.text(left + 62, y - 10, title, {
       fontFamily: `${FONT}, ${EMOJI_FONT}`, fontSize: '19px', fontStyle: 'bold', color: css(PALETTE.text),
       padding: { x: 1, y: 3 },

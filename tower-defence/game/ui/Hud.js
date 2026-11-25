@@ -137,6 +137,9 @@ export class Hud {
   // change; widths snap to 8 px so only a few card textures are baked). The preview card is
   // dropped if it doesn't fit before the buttons; if even the stats don't fit, they shrink.
   reflow() {
+    for (const c of Object.values(this.cards)) {
+      for (const o of [c.bg, c.value, c.sub]) if (o) { o.baseScale = 1; o.setScale(1); }
+    }
     let x = 14;
     const order = [['corks', 96], ['wine', 84], ['wave', 120]];
     for (const [key, min] of order) {
@@ -155,12 +158,13 @@ export class Hud {
       o.x = o.baseX + x;
     }
     if (p.bg) p.bg.x = x + p.width / 2;
-    // Stats alone too wide (very narrow canvas): squeeze them.
+    // Stats alone too wide: squeeze them. Not reachable at the 1280 px minimum width (the
+    // stats need ~450 px, the buttons leave ~750), kept as a guard; bump() respects it.
     const statsRight = x - GAP;
     if (statsRight > this.buttonsLeft - 6) {
       const k = (this.buttonsLeft - 6) / statsRight;
       for (const c of Object.values(this.cards)) {
-        for (const o of [c.bg, c.value, c.sub]) { o.x *= k; o.setScale(k); }
+        for (const o of [c.bg, c.value, c.sub]) { o.x *= k; o.baseScale = k; o.setScale(k); }
       }
     }
   }
@@ -214,7 +218,11 @@ export class Hud {
 
   bump(text) {
     this.scene.tweens.killTweensOf(text);
-    text.setScale(1);
-    this.scene.tweens.add({ targets: text, scale: 1.15, duration: 90, yoyo: true });
+    const base = text.baseScale ?? 1;
+    text.setScale(base);
+    this.scene.tweens.add({
+      targets: text, scale: base * 1.15, duration: 90, yoyo: true,
+      onComplete: () => text.setScale(base),
+    });
   }
 }
