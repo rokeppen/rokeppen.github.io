@@ -45,19 +45,27 @@ export function createDataSource({ client, fetchFallback, timeoutMs = 3000 }) {
     };
   }
 
-  async function loadGameData({ includeUnpublished = false } = {}) {
+  // includeInvalid (admin editor): return the DB's own rows untouched, invalid levels
+  // included so they can be repaired, and never fall back just because nothing validates.
+  async function loadGameData({ includeUnpublished = false, includeInvalid = false } = {}) {
     let reason;
+    let fallbackReason = 'unreachable';
     try {
       const raw = await withTimeout(readDb(), timeoutMs);
+      if (includeInvalid) {
+        raw.levels.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        return { ...raw, source: 'db' };
+      }
       const prepared = prepareGameData(raw, { includeUnpublished });
       if (prepared.levels.length > 0) return { ...prepared, source: 'db' };
       reason = 'database has no valid levels';
+      fallbackReason = 'no-valid-levels';
     } catch (e) {
       reason = errorMessage(e);
     }
     console.warn(`Using fallback data: ${reason}`);
     const raw = await fetchFallback();
-    return { ...prepareGameData(raw, { includeUnpublished }), source: 'fallback' };
+    return { ...prepareGameData(raw, { includeUnpublished }), source: 'fallback', fallbackReason };
   }
 
   const upsert = (table, row) => write(() => client.from(table).upsert(row));
