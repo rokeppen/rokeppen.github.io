@@ -89,7 +89,7 @@
       "fireRate": 0.25,
       "effect": "lure",
       "effectStrength": 0,
-      "effectDuration": 3,
+      "effectDuration": 2,
       "upgrades": [
         {
           "cost": 70,
