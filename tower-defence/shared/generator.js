@@ -191,18 +191,25 @@ function makePath(rng, cols, rows, twistiness) {
 // ---------- blocked tiles ----------
 
 function makeBlocked(rng, cols, rows, path) {
-  const onPath = new Set(path.map(key));
-  const nearPath = new Set();
+  // 0 = free, 1 = next to the path (8-neighbourhood), 2 = on the path.
+  const grid = new Uint8Array(cols * rows);
   for (const p of path) {
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) nearPath.add(`${p.x + dx},${p.y + dy}`);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = p.x + dx;
+        const y = p.y + dy;
+        if (x >= 0 && y >= 0 && x < cols && y < rows && grid[y * cols + x] === 0) grid[y * cols + x] = 1;
+      }
+    }
   }
+  for (const p of path) grid[p.y * cols + p.x] = 2;
   const far = [];
   const near = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
-      const k = `${x},${y}`;
-      if (onPath.has(k)) continue;
-      (nearPath.has(k) ? near : far).push({ x, y });
+      const v = grid[y * cols + x];
+      if (v === 0) far.push({ x, y });
+      else if (v === 1) near.push({ x, y });
     }
   }
   const free = far.length + near.length;
@@ -234,61 +241,45 @@ function unlockWaves(guests, n) {
   }));
 }
 
-// Each wave spends an HP budget that grows linearly: budget(i) = unit * (1 + 0.3 i), with
-// unit = 4 * difficulty multiplier * hp of the filler guest (the lightest guest available
-// from wave 0). The budget goes to up to three groups:
-//   anchor - the heaviest unlocked guest that fits in 80% of the budget, ~30-55% of it;
-//   middle - sometimes another fitting guest, ~15-30% of it;
-//   filler - the rest, rounded up, so the wave's HP lies in [budget, budget + filler hp).
-// The budget step (1.2 * multiplier * filler hp) is larger than that rounding, so the total HP
-// grows every wave, and guest counts stay close to budget / hp (at most ~52 filler guests).
+const MAX_GROUP = 60; // no group in a generated wave is bigger than this
+
+// Every unlocked guest is in every wave from its unlock wave on, so every listed guest appears
+// at least once. A guest's count never drops from one wave to the next, and every wave after
+// the first adds at least one guest, so the total HP grows strictly every wave.
+// The wave size follows a smooth curve, round(mult * (3 + 2 i)), where mult is the difficulty's
+// guest multiplier (at most 78 guests for 20-wave Chaos). The extra guests in each wave go to
+// randomly picked guests, weighted towards light ones (1 / sqrt(hp)). A guest count above
+// MAX_GROUP is split over several groups of that guest.
 function makeWaves(rng, guests, n, tune) {
   const unlocks = unlockWaves(guests, n);
-  const lightest = (list) => list.reduce((a, b) => (hpOf(b) < hpOf(a) ? b : a));
-  const heaviest = (list) => list.reduce((a, b) => (hpOf(b) > hpOf(a) ? b : a));
-  const filler = lightest(unlocks.filter((u) => u.from === 0).map((u) => u.guest));
-  const unit = 4 * tune.guests * hpOf(filler);
-  // Shares are per level (not per wave) so a group's count never drops while the same guest
-  // holds that role; that keeps wave sizes smooth.
-  const anchorShare = 0.3 + 0.2 * rng();
-  const middleShare = 0.1 + 0.15 * rng();
+  const counts = new Map();
   const waves = [];
+  let prevTotal = 0;
   for (let i = 0; i < n; i++) {
-    // A fixed number of draws per wave keeps the draw sequence the same across difficulties.
-    const rJitter = [rng(), rng(), rng()];
-    const budget = unit * (1 + 0.3 * i);
-    const pool = unlocks.filter((u) => u.from <= i).map((u) => u.guest);
-    const fitting = pool.filter((g) => g !== filler && hpOf(g) <= 0.8 * budget);
-    const anchor = fitting.length ? heaviest(fitting) : null;
-    const others = fitting.filter((g) => g !== anchor);
-    const middle = others.length ? heaviest(others) : null;
-
-    const parts = [];
-    let left = budget;
-    if (anchor) {
-      const hp = hpOf(anchor);
-      const count = Math.min(Math.floor((0.8 * budget) / hp), Math.max(1, Math.round((anchorShare * budget) / hp)));
-      parts.push({ guest: anchor, count });
-      left -= count * hp;
+    const fresh = unlocks.filter((u) => u.from === i).map((u) => u.guest);
+    for (const g of fresh) counts.set(g, 1);
+    const pool = [...counts.keys()];
+    const curve = Math.round(tune.guests * (3 + 2 * i));
+    let extra = Math.max(i > 0 ? 1 : 0, curve - prevTotal - fresh.length);
+    const weights = pool.map((g) => 1 / Math.sqrt(hpOf(g)));
+    const weightSum = weights.reduce((s, w) => s + w, 0);
+    while (extra-- > 0) {
+      let r = rng() * weightSum;
+      let k = 0;
+      while (k < pool.length - 1 && r >= weights[k]) r -= weights[k++];
+      counts.set(pool[k], counts.get(pool[k]) + 1);
     }
-    if (middle) {
-      const hp = hpOf(middle);
-      const count = Math.min(Math.floor(left / hp), Math.round((middleShare * budget) / hp));
-      if (count >= 1) {
-        parts.push({ guest: middle, count });
-        left -= count * hp;
-      }
-    }
-    const fillCount = Math.ceil(left / hpOf(filler) - 1e-9);
-    if (fillCount >= 1 || parts.length === 0) parts.unshift({ guest: filler, count: Math.max(1, fillCount) });
+    prevTotal = pool.reduce((s, g) => s + counts.get(g), 0);
 
     const slowdown = 1 - (0.3 * i) / Math.max(1, n - 1);
-    const wave = parts.map((p, k) => ({
-      enemyId: p.guest.id,
-      count: p.count,
-      intervalS: Math.max(0.2, round(tune.interval * (0.85 + 0.3 * rJitter[k]) * slowdown, 0.05)),
-      delayS: 0,
-    }));
+    const wave = [];
+    for (const g of shuffle(rng, pool)) {
+      const intervalS = Math.max(0.2, round(tune.interval * (0.85 + 0.3 * rng()) * slowdown, 0.05));
+      // A guest with more than MAX_GROUP in a wave is split into several groups.
+      for (let left = counts.get(g); left > 0; left -= MAX_GROUP) {
+        wave.push({ enemyId: g.id, count: Math.min(left, MAX_GROUP), intervalS, delayS: 0 });
+      }
+    }
     // Groups overlap a little: each starts when the previous one is ~60% through.
     for (let k = 1; k < wave.length; k++) {
       const p = wave[k - 1];

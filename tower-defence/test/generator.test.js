@@ -34,6 +34,18 @@ const mixedCatalog = {
 };
 const mixedOpts = { enemyIds: ['boss', 'weak', 'mid'], weaponIds: ['cheap', 'slow', 'big'] };
 
+// Heavy easy guests plus very light guests that are "tough" through speed and wineDamage.
+const zipCatalog = {
+  weapons: [{ id: 'gun', cost: 40, damage: 5 }],
+  enemies: [
+    { id: 'tank', hp: 100, speed: 1, wineDamage: 1 },
+    { id: 'tank2', hp: 120, speed: 1, wineDamage: 1 },
+    { id: 'zip', hp: 5, speed: 10, wineDamage: 10 },
+    { id: 'zip2', hp: 4, speed: 10, wineDamage: 10 },
+  ],
+};
+const zipOpts = { enemyIds: ['tank', 'tank2', 'zip', 'zip2'], weaponIds: ['gun'] };
+
 const base = { size: 'medium', difficulty: 'party', twistiness: 0.5, waves: 6, seed: 1 };
 const asSaved = (lvl) => ({ ...lvl, id: 'x', sortOrder: 0, published: false });
 const spawnCount = (lvl) => lvl.waves.flat().reduce((n, g) => n + g.count, 0);
@@ -51,8 +63,10 @@ const MAX_WAVE = 120; // no wave is bigger than this (worst case: 20-wave Chaos)
 
 test('RF3: every combination yields a valid, saveable level with sane guest counts', () => {
   const t0 = Date.now();
-  const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [fullCatalog, fullOpts]];
+  const cases = [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]];
   for (const [catalog, lists] of cases) {
+    const tough = (e) => e.hp * e.speed * e.wineDamage;
+    const toughest = [...catalog.enemies].sort((a, b) => tough(b) - tough(a))[0].id;
     for (let seed = 0; seed < 60; seed++) {
       for (const size of Object.keys(SIZES)) {
         for (const difficulty of DIFFICULTIES) {
@@ -60,22 +74,28 @@ test('RF3: every combination yields a valid, saveable level with sane guest coun
             for (const waves of [1, 6, 20]) {
               const opts = { ...lists, size, difficulty, twistiness, waves, seed: seed * 7919 + 13 };
               const lvl = generateLevel(opts, catalog);
-              const tag = JSON.stringify({ size, difficulty, twistiness, waves, seed: opts.seed });
-              assert.ok(isPathValid(lvl.path, lvl.start, lvl.end, lvl.cols, lvl.rows), tag);
+              // Messages are built only on failure; building them eagerly dominated the run time.
+              const check = (ok, what) => {
+                if (!ok) assert.fail(`${JSON.stringify({ size, difficulty, twistiness, waves, seed: opts.seed })}: ${what()}`);
+              };
+              check(isPathValid(lvl.path, lvl.start, lvl.end, lvl.cols, lvl.rows), () => 'path invalid');
               const res = validateLevel(asSaved(lvl), catalog);
-              assert.deepEqual(res.errors, [], tag);
-              assert.ok(res.level, tag);
-              assert.equal(lvl.waves.length, waves, tag);
-              assert.deepEqual([lvl.cols, lvl.rows], SIZES[size], tag);
+              check(res.level && res.errors.length === 0, () => `validateLevel: ${res.errors}`);
+              check(lvl.waves.length === waves, () => `${lvl.waves.length} waves`);
+              check(lvl.cols === SIZES[size][0] && lvl.rows === SIZES[size][1], () => 'wrong size');
               const saved = canSave(asSaved(lvl), catalog);
-              assert.deepEqual(saved.errors, [], tag);
-              assert.equal(saved.ok, true, tag);
+              check(saved.ok && saved.errors.length === 0, () => `canSave: ${saved.errors}`);
               const counts = lvl.waves.map((w) => w.reduce((n, g) => n + g.count, 0));
               counts.forEach((c, i) => {
-                assert.ok(c <= MAX_WAVE, `${tag} wave ${i + 1} has ${c} guests`);
-                if (i > 0) assert.ok(c <= MAX_GROWTH * counts[i - 1], `${tag} counts ${counts}`);
+                check(c <= MAX_WAVE, () => `wave ${i + 1} has ${c} guests`);
+                if (i > 0) check(c <= MAX_GROWTH * counts[i - 1], () => `counts ${counts}`);
               });
-              for (const g of lvl.waves.flat()) assert.ok(g.count <= MAX_GROUP, `${tag} group of ${g.count}`);
+              for (const g of lvl.waves.flat()) check(g.count <= MAX_GROUP, () => `group of ${g.count}`);
+              const appearing = new Set(lvl.waves.flat().map((g) => g.enemyId));
+              for (const id of lists.enemyIds) check(appearing.has(id), () => `guest ${id} never appears`);
+              if (waves >= 4 && lists.enemyIds.length >= 2) {
+                check(!lvl.waves[0].some((g) => g.enemyId === toughest), () => 'toughest in wave 1');
+              }
             }
           }
         }
@@ -86,7 +106,7 @@ test('RF3: every combination yields a valid, saveable level with sane guest coun
 });
 
 test('20-wave Chaos stays within the per-wave and per-group caps', () => {
-  for (const [catalog, lists] of [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [fullCatalog, fullOpts]]) {
+  for (const [catalog, lists] of [[tinyCatalog, tinyOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [fullCatalog, fullOpts]]) {
     for (let seed = 0; seed < 200; seed++) {
       const lvl = generateLevel({ ...base, ...lists, difficulty: 'chaos', waves: 20, seed }, catalog);
       for (const w of lvl.waves) {
@@ -211,11 +231,11 @@ test('chaos spawns more guests with shorter intervals than party, party more tha
 });
 
 test('waves escalate: total HP grows every wave', () => {
-  for (const [catalog, lists] of [[fullCatalog, fullOpts], [mixedCatalog, mixedOpts], [tinyCatalog, tinyOpts]]) {
+  for (const [catalog, lists] of [[fullCatalog, fullOpts], [mixedCatalog, mixedOpts], [zipCatalog, zipOpts], [tinyCatalog, tinyOpts]]) {
     const hp = hpOf(catalog);
     for (let seed = 0; seed < 30; seed++) {
       for (const difficulty of DIFFICULTIES) {
-        const lvl = generateLevel({ ...base, ...lists, difficulty, waves: 12, seed }, catalog);
+        const lvl = generateLevel({ ...base, ...lists, difficulty, waves: 20, seed }, catalog);
         const totals = lvl.waves.map((w) => w.reduce((s, g) => s + g.count * hp[g.enemyId], 0));
         for (let i = 1; i < totals.length; i++) assert.ok(totals[i] > totals[i - 1], `${totals}`);
       }
