@@ -1,33 +1,27 @@
-// Side panel, bottom half: a white card showing the selected tower (stats, Upgrade, Sell),
-// otherwise the weapon being placed or hovered, otherwise a short how-to-play.
-// Keys: U upgrade, S sell. Upgrade/Sell are anchored to the bottom of the card, so they
-// always stay on canvas.
+// Side panel, bottom half: a white card showing the selected tower's stats, otherwise the
+// weapon of the Build card being placed or hovered, otherwise a short how-to-play.
+// Upgrading and selling are done with cards from the hand, not here.
 import { PALETTE, SIDE_WIDTH } from '../theme.js';
 import { weaponStats, upgradeCost } from '../logic/stats.js';
-import { sellRefund } from '../logic/state.js';
-import { Button, label, icon } from './widgets.js';
+import { label, icon } from './widgets.js';
 import { addCard } from './textures.js';
 
 const DEPTH = 10;
-// Vertical space the panel needs below the build menu: header, card with stats, effect line
-// and the bottom-anchored buttons. BuildMenu never grows into it.
-export const TOWER_PANEL_HEIGHT = 350;
-const BUTTONS_HEIGHT = 70; // Upgrade + Sell row + key hint, measured up from `bottom`
+// Vertical space the panel needs below the hand: header, card with stats, effect line and
+// the hint at the bottom. HandPanel never grows into it.
+export const TOWER_PANEL_HEIGHT = 250;
 const HELP = [
   'Guests crashed the drinks and',
   'are heading for the beer bar 🍻.',
   '',
-  'Each turn: 3 actions (build,',
-  'upgrade, sell), then End turn ▶.',
-  'Unused actions pay 10 🧢 each.',
+  'Play one card per turn, then',
+  'End turn ▶. You draw a card',
+  'each turn and keep the rest.',
   'Guests walk tile by tile; your',
   'weapons fire as they pass.',
-  '🔔 Bell: free, once per level.',
-  '',
-  'Keys: 1-9 build · Esc cancel',
-  'Space end turn · Enter skip turn',
-  'B bell · F ⏩ · M mute',
-  'U upgrade · S sell',
+  'Keys: 1-7 card · Esc cancel',
+  'Space end turn · Enter skip',
+  'F ⏩ · M mute',
 ].join('\n');
 
 // Durations are whole guests' turns (the engine rounds data seconds up).
@@ -62,14 +56,7 @@ export class TowerPanel {
     this.width = cardW - 24;
     this.bottom = cardBottom - 10;
     this.objects = [];
-    this.buttons = [];
     this.shown = null;
-
-    const kb = scene.input.keyboard;
-    if (kb) {
-      kb.on('keydown-U', () => this.upgrade());
-      kb.on('keydown-S', () => this.sell());
-    }
     this.update();
   }
 
@@ -78,60 +65,38 @@ export class TowerPanel {
     return selectedTowerId === null ? null : state.towers.find((t) => t.id === selectedTowerId) ?? null;
   }
 
-  upgrade() {
-    const tower = this.selectedTower();
-    if (!tower) return;
-    const { scene } = this;
-    if (scene.refuseAction()) return;
-    const result = scene.state.upgradeTower(tower.id);
-    if (!result.ok) scene.toastReason(result.reason);
-    else scene.onTowerUpgraded(tower);
-  }
-
-  sell() {
-    const tower = this.selectedTower();
-    if (!tower) return;
-    const { scene } = this;
-    if (scene.refuseAction()) return;
-    const result = scene.state.sellTower(tower.id);
-    if (!result.ok) scene.toastReason(result.reason);
-    else scene.onTowerSold(tower, result.refund);
+  // The weapon of the Build card being placed, else of the Build card hovered in the hand.
+  cardWeapon() {
+    const { pendingCard, hoverCardId, state } = this.scene;
+    if (pendingCard && pendingCard.kind === 'build') return { weaponId: pendingCard.weaponId, placing: true };
+    const hovered = hoverCardId !== null ? state.hand.find((c) => c.id === hoverCardId) : null;
+    if (hovered && hovered.kind === 'build') return { weaponId: hovered.weaponId, placing: false };
+    return null;
   }
 
   update() {
     const { scene } = this;
     const tower = this.selectedTower();
-    const weaponId = scene.selectedWeaponId ?? scene.hoverWeaponId ?? null;
-    const corks = scene.state.corks;
-    const sig = tower
-      ? `t|${tower.id}|${tower.tier}|${corks >= (upgradeCost(scene.weapons.get(tower.weaponId), tower.tier) ?? Infinity)}|${this.canAct()}`
-      : weaponId ? `w|${weaponId}|${scene.selectedWeaponId === weaponId}` : 'help';
+    const pick = this.cardWeapon();
+    const sig = tower ? `t|${tower.id}|${tower.tier}` : pick ? `w|${pick.weaponId}|${pick.placing}` : 'help';
     if (sig === this.shown) return;
     this.shown = sig;
     this.clear();
     if (tower) {
       this.heading.setText('SELECTED');
       this.showTower(tower);
-    } else if (weaponId) {
-      this.heading.setText(scene.selectedWeaponId === weaponId ? 'PLACING' : 'WEAPON');
-      this.showWeapon(scene.weapons.get(weaponId), scene.selectedWeaponId === weaponId);
+    } else if (pick) {
+      this.heading.setText(pick.placing ? 'PLACING' : 'CARD');
+      this.showWeapon(scene.weapons.get(pick.weaponId), pick.placing);
     } else {
       this.heading.setText('HOW TO PLAY');
       this.add(label(scene, this.x, this.top - 2, HELP, { size: 13, color: PALETTE.muted, lineSpacing: 2 }));
     }
   }
 
-  // An action could be taken now (the buttons look pressable).
-  canAct() {
-    const { state, busy, ended } = this.scene;
-    return !busy && !ended && !state.over && state.actionsLeft > 0;
-  }
-
   clear() {
     for (const o of this.objects) o.destroy();
-    for (const b of this.buttons) b.destroy();
     this.objects = [];
-    this.buttons = [];
   }
 
   add(obj) {
@@ -165,7 +130,7 @@ export class TowerPanel {
   showWeapon(weapon, placing) {
     const { scene, x } = this;
     const stats = weaponStats(weapon, 0);
-    let y = this.header(weapon, `🧢 ${weapon.cost}`, PALETTE.capsText);
+    let y = this.header(weapon, 'Free with a Build card', PALETTE.goodText);
     const desc = this.add(label(scene, x, y, weapon.description, {
       size: 12, color: PALETTE.muted, wordWrap: { width: this.width }, fontStyle: 'italic',
     }));
@@ -175,8 +140,9 @@ export class TowerPanel {
       ['Range', `${stats.range} tiles`],
       ['Rate', `${stats.fireRate}/turn`],
     ]);
-    this.add(label(scene, x, y + 2, effectText(weapon, stats), { size: 13, wordWrap: { width: this.width } }));
+    const effect = this.add(label(scene, x, y + 2, effectText(weapon, stats), { size: 13, wordWrap: { width: this.width } }));
     if (placing) {
+      effect.setVisible(y + 2 + effect.height < this.bottom - 38);
       this.add(label(scene, x, this.bottom - 36, 'Click a free floor tile to build.\nRight-click or Esc to cancel.', {
         size: 12, color: PALETTE.goodText,
       }));
@@ -209,25 +175,12 @@ export class TowerPanel {
       lines.push(row('Splash', stats.effectStrength, next?.effectStrength));
     }
     y = this.rows(y, lines) + 4;
-    const buttonsTop = this.bottom - BUTTONS_HEIGHT;
     const effect = this.add(label(scene, x, y, effectText(weapon, stats), {
       size: 12, color: PALETTE.muted, wordWrap: { width: this.width },
     }));
-    if (y + effect.height > buttonsTop - 4) effect.setVisible(false); // never under the buttons
-
-    const b = this.bottom;
-    const sellW = 76;
-    const upW = this.width - sellW - 8;
-    const upLabel = cost === null ? 'Maxed ★' : `⬆ Upgrade 🧢${cost}`;
-    const up = new Button(scene, x + upW / 2, b - 50, upW, 38, upLabel, () => this.upgrade(),
-      { size: 14, variant: 'primary' });
-    up.setEnabled(cost !== null && scene.state.corks >= cost && this.canAct());
-    const sell = new Button(scene, x + this.width - sellW / 2, b - 50, sellW, 38, `Sell +${sellRefund(tower)}`,
-      () => this.sell(), { size: 14 });
-    sell.setEnabled(this.canAct());
-    this.buttons.push(up, sell);
-    this.add(label(scene, x + this.width / 2, b - 22, '[U] upgrade · [S] sell · Esc close', {
-      size: 11, color: PALETTE.muted,
-    })).setOrigin(0.5, 0);
+    if (y + effect.height > this.bottom - 22) effect.setVisible(false); // never under the hint
+    const hint = cost === null ? 'Fully upgraded ★' : 'An Upgrade card adds a tier';
+    this.add(label(scene, x + this.width / 2, this.bottom - 18, hint, { size: 11, color: PALETTE.muted }))
+      .setOrigin(0.5, 0);
   }
 }

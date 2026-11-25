@@ -46,3 +46,24 @@ export function cardTitle(card, weaponDefs) {
   if (card.kind === 'sell') return 'Sell a weapon';
   return 'Ring the bell';
 }
+
+const EFFECT_WORD = { slow: 'slows', distract: 'distracts', lure: 'lures', splash: 'splash' };
+
+// Second line of a card in the hand.
+export function cardSubtitle(card, weaponDefs) {
+  if (card.kind === 'build') {
+    const word = EFFECT_WORD[weaponDefs.get(card.weaponId)?.effect];
+    return word ? `New weapon · ${word}` : 'New weapon';
+  }
+  if (card.kind === 'upgrade') return 'One of yours, +1 tier';
+  if (card.kind === 'sell') return 'Pick one · 50 % back in 🧢';
+  return 'Clears the room, pays 🧢';
+}
+
+// { sprite, fallback } for the card's icon: the weapon's sprite, or an emoji.
+export function cardIcon(card, weaponDefs) {
+  const w = card.weaponId ? weaponDefs.get(card.weaponId) : null;
+  if (w) return { sprite: w.sprite, fallback: w.fallbackSprite };
+  const e = card.kind === 'sell' ? '💰' : '🔔';
+  return { sprite: e, fallback: e };
+}

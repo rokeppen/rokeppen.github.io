@@ -133,12 +133,13 @@ export function toast(scene, x, y, text, color = PALETTE.text) {
 // Friendly text for the `reason` codes GameState returns on failed actions
 // ('guests-moving' is the scene's own: input during the guests' turn playback).
 const REASONS = {
-  'no-corks': 'Not enough caps 🧢',
   'not-buildable': "Can't build there",
   'max-tier': 'Fully upgraded',
-  'no-actions': 'No actions left this turn',
+  'card-played': 'You already played a card this turn',
+  'no-target': 'Pick a valid target for this card',
+  'wrong-weapon': 'That card is for another weapon',
+  'unknown-card': 'That card is gone',
   'guests-moving': 'Guests are moving…',
-  'used': 'The bell has already rung 🔔',
   'game-over': "The party's over",
   'not-in-level': 'Not on the menu tonight',
   'unknown': 'Nothing to do there',

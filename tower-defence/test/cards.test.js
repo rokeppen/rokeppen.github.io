@@ -207,3 +207,22 @@ test('ending a turn pays no bonus', () => {
   assert.equal(events.filter((e) => e.type === 'bonus').length, 0);
   assert.equal(s.corks, 50);
 });
+
+test('cardSubtitle and cardIcon describe the card for the hand', async () => {
+  const { cardSubtitle, cardIcon } = await import('../game/logic/cards.js');
+  const defs = new Map([['up', { ...up, effect: 'slow', sprite: 'u.png', fallbackSprite: '⬆' }]]);
+  assert.equal(cardSubtitle({ kind: 'build', weaponId: 'up' }, defs), 'New weapon · slows');
+  assert.equal(cardSubtitle({ kind: 'upgrade', weaponId: 'up' }, defs), 'One of yours, +1 tier');
+  assert.equal(cardSubtitle({ kind: 'sell' }, defs), 'Pick one · 50 % back in 🧢');
+  assert.equal(cardSubtitle({ kind: 'bell' }, defs), 'Clears the room, pays 🧢');
+  assert.deepEqual(cardIcon({ kind: 'upgrade', weaponId: 'up' }, defs), { sprite: 'u.png', fallback: '⬆' });
+  assert.deepEqual(cardIcon({ kind: 'sell' }, defs), { sprite: '💰', fallback: '💰' });
+  assert.deepEqual(cardIcon({ kind: 'bell' }, defs), { sprite: '🔔', fallback: '🔔' });
+});
+
+test('how-to text for cards (no actions or bonus left)', async () => {
+  const { howToPlay } = await import('../game/how-to.js');
+  const text = howToPlay({ enemies: [] }).map(([, t]) => t).join('\n');
+  assert.doesNotMatch(text, /3 actions|unused action|once per level/);
+  assert.match(text, /one card per turn/i);
+});

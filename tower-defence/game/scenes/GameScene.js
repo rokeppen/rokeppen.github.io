@@ -1,15 +1,15 @@
 // Renders one level from a GameState. All rules live in ../logic/state.js; this scene
 // only draws the state, forwards input to it and plays back the events of the guests' turn.
 //
-// Play is turn-based: in the player's turn the scene waits for actions (place, upgrade,
-// sell: 3 per turn) and the free Victory Bell; End turn (button or Space) calls
+// Play is turn-based: in the player's turn the scene waits for one action card from the
+// hand (build, upgrade, sell or bell; see ../logic/cards.js); End turn (button or Space) calls
 // state.endTurn(), which resolves the whole guests' turn at once. Its events are then
 // played back round by round (see ../playback.js): guests tween tile to tile, towers fire
 // after each round of steps. While that runs `busy` is true and every action is refused.
 //
 // The HUD, build menu and tower panel live in ../ui/ and talk to the scene through:
 //   scene.state                      the GameState (read corks, wine, phase, towers, ...)
-//   scene.view                       { corks, wine, wave, turn, actions } as shown: follows the
+//   scene.view                       { corks, wine, wave, turn, cardPlayed } as shown: follows the
 //                                    state, except during playback (then event by event)
 //   scene.busy, scene.ended          guests' turn playing back / level finished
 //   scene.fast                       ⏩: playback 3× faster
@@ -18,19 +18,20 @@
 //   scene.hud                        Hud (capsTarget(), bumpCaps() for flying caps)
 //   scene.layout                     { boardX, boardY, boardWidth, boardHeight, sideX, width, height }
 //                                    in canvas pixels (side panel spans sideX..width, HUD_HEIGHT..height)
-//   scene.endTurn(), scene.ringBell()
+//   scene.endTurn()
 //   scene.refuseAction()             true (with a toast while busy) when no action may be taken now
-//   scene.selectWeapon(id|null)      choose a weapon to place (null cancels)
+//   scene.selectCard(id|null)        pick a card from the hand: the bell plays at once, others
+//                                    wait for a target on the board (null cancels)
 //   scene.selectTower(id|null)       choose a placed tower (range shown)
-//   scene.selectedWeaponId / selectedTowerId / hoverWeaponId
+//   scene.pendingCard / selectedTowerId / hoverCardId
 //   scene.toast(text, color?), scene.toastReason(reason)
 //   scene.onTowerUpgraded(tower), scene.onTowerSold(tower, refund), scene.backToMenu()
 //   scene.sfx (see ../sound.js, may be null)
 //   scene.bus                        Phaser EventEmitter, recreated per level run:
 //     'state-event' (ev)             every engine event, once, when it is played back
 //     'playback-done' (turn)         the guests' turn finished playing; input is back
-//     'tile-click' ({x, y, type, towerId, result})   result = placeTower result when placing
-//     'weapon-selected' (id|null), 'tower-selected' (id|null)
+//     'tile-click' ({x, y, type, towerId, result})   result = playCard result when a card was played
+//     'card-selected' (card|null), 'tower-selected' (id|null)
 import { GameState } from '../logic/state.js';
 import { weaponStats } from '../logic/stats.js';
 import { planPlayback, scaleMs, STEP_MS, SETTLE_MS } from '../playback.js';
@@ -39,7 +40,7 @@ import {
   FONT, EMOJI_FONT, css, rgb,
 } from '../theme.js';
 import { Hud } from '../ui/Hud.js';
-import { BuildMenu } from '../ui/BuildMenu.js';
+import { HandPanel } from '../ui/HandPanel.js';
 import { TowerPanel } from '../ui/TowerPanel.js';
 import { toast, reasonText, label, icon, barIcon } from '../ui/widgets.js';
 import {
@@ -91,9 +92,9 @@ export class GameScene extends Phaser.Scene {
     this.input.enabled = true;
     if (this.input.keyboard) this.input.keyboard.enabled = true;
 
-    this.selectedWeaponId = null;
+    this.pendingCard = null;
     this.selectedTowerId = null;
-    this.hoverWeaponId = null;
+    this.hoverCardId = null;
     this.hoverTile = null;
     this.fast = false;
     this.stepMs = STEP_MS; // tile-to-tile tween of the current beat (shorter on long walks)
@@ -137,11 +138,11 @@ export class GameScene extends Phaser.Scene {
     this.installPointer();
 
     this.hud = new Hud(this);
-    this.buildMenu = new BuildMenu(this);
-    this.towerPanel = new TowerPanel(this, this.buildMenu.bottom);
+    this.hand = new HandPanel(this);
+    this.towerPanel = new TowerPanel(this, this.hand.bottom);
   }
 
-  // No simulation here: the state only changes on actions and End turn. Frames animate.
+  // No simulation here: the state only changes on cards and End turn. Frames animate.
   update(_time, delta) {
     if (!this.state) return;
     if (!this.busy) this.syncView();
@@ -151,7 +152,7 @@ export class GameScene extends Phaser.Scene {
     this.drawHover();
     this.drawEffects(delta / 1000);
     this.hud.update();
-    this.buildMenu.update();
+    this.hand.update();
     this.towerPanel.update();
   }
 
@@ -162,7 +163,7 @@ export class GameScene extends Phaser.Scene {
     v.wine = s.wine;
     v.wave = s.waveIndex;
     v.turn = s.turn;
-    v.actions = s.over ? 0 : s.actionsLeft;
+    v.cardPlayed = s.over || s.cardPlayedThisTurn;
   }
 
   // --- layout & coordinates ---
@@ -213,15 +214,40 @@ export class GameScene extends Phaser.Scene {
 
   // --- public hooks ---
 
-  selectWeapon(weaponId) {
-    this.selectedWeaponId = weaponId && this.level.weaponIds.includes(weaponId) ? weaponId : null;
-    if (this.selectedWeaponId) this.selectedTowerId = null;
-    this.bus.emit('weapon-selected', this.selectedWeaponId);
+  // Picks a card from the hand. The bell plays at once; build, upgrade and sell wait for a
+  // target click on the board. An unplayable card says why and stays in the hand.
+  selectCard(cardId) {
+    if (cardId === null || cardId === undefined) {
+      this.pendingCard = null;
+      this.bus.emit('card-selected', null);
+      return;
+    }
+    if (this.refuseAction()) return;
+    const { state } = this;
+    const card = state.hand.find((c) => c.id === cardId);
+    if (!card) return;
+    if (!state.cardPlayable(card)) {
+      this.toastReason(state.cardPlayedThisTurn ? 'card-played' : 'no-target');
+      return;
+    }
+    if (card.kind === 'bell') {
+      this.selectCard(null);
+      const result = state.playCard(card.id);
+      if (!result.ok) {
+        this.toastReason(result.reason);
+        return;
+      }
+      for (const ev of result.events) this.playEvent(ev);
+      return;
+    }
+    this.pendingCard = card;
+    this.selectedTowerId = null;
+    this.bus.emit('card-selected', card);
   }
 
   selectTower(towerId) {
     this.selectedTowerId = towerId ?? null;
-    if (this.selectedTowerId !== null) this.selectedWeaponId = null;
+    if (this.selectedTowerId !== null) this.pendingCard = null;
     this.bus.emit('tower-selected', this.selectedTowerId);
   }
 
@@ -240,18 +266,36 @@ export class GameScene extends Phaser.Scene {
     const type = this.state.tileType(x, y);
     const tower = this.state.towers.find((t) => t.x === x && t.y === y);
     let result = null;
-    if (this.selectedWeaponId && tower) {
-      // Clicking an existing tower while placing opens that tower instead of complaining.
+    const card = this.pendingCard;
+    if (card && card.kind === 'build' && tower) {
+      // Clicking an existing tower while building opens that tower instead of complaining.
       this.selectTower(tower.id);
-    } else if (this.selectedWeaponId) {
+    } else if (card && card.kind === 'build') {
       if (this.refuseAction()) return;
-      const weaponId = this.selectedWeaponId;
-      result = this.state.placeTower(x, y, weaponId);
+      result = this.state.playCard(card.id, { x, y });
       if (result.ok) {
-        this.selectWeapon(null);
-        this.onTowerPlaced(x, y, weaponId);
+        this.selectCard(null);
+        this.onTowerPlaced(x, y, card.weaponId);
       } else {
         this.toastReason(result.reason);
+      }
+    } else if (card) {
+      if (this.refuseAction()) return;
+      if (!tower) {
+        this.toastReason('no-target');
+      } else {
+        result = this.state.playCard(card.id, { towerId: tower.id });
+        if (!result.ok) {
+          this.toastReason(result.reason);
+        } else {
+          this.selectCard(null);
+          if (card.kind === 'upgrade') {
+            this.selectTower(tower.id);
+            this.onTowerUpgraded(tower);
+          } else {
+            this.onTowerSold(tower, result.refund);
+          }
+        }
       }
     } else {
       // Looking at a tower is not an action: allowed while the guests move.
@@ -272,25 +316,8 @@ export class GameScene extends Phaser.Scene {
       this.toastReason(result.reason);
       return;
     }
-    this.selectWeapon(null);
+    this.selectCard(null);
     this.runPlayback(result.events);
-  }
-
-  // The Nexios Victory Bell: free (not an action), once per level.
-  ringBell() {
-    if (this.refuseAction()) return;
-    const { state } = this;
-    if (!state.bellUsed && state.enemies.length === 0) {
-      // Don't waste the once-per-level bell on an empty office.
-      this.toast('No guests to ring out yet');
-      return;
-    }
-    const result = state.ringBell();
-    if (!result.ok) {
-      this.toastReason(result.reason);
-      return;
-    }
-    for (const ev of result.events) this.playEvent(ev);
   }
 
   toast(text, color = PALETTE.text) {
@@ -304,7 +331,7 @@ export class GameScene extends Phaser.Scene {
 
   onTowerPlaced(x, y, weaponId) {
     const c = this.tileCentre(x, y);
-    this.floatText(c.x, c.y - 30, `-${this.weapons.get(weaponId).cost} 🧢`, PALETTE.muted);
+    this.floatText(c.x, c.y - 30, `${this.weapons.get(weaponId).name}!`, PALETTE.goodText);
     this.play('cork');
   }
 
@@ -346,7 +373,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointermove', (p) => { this.hoverTile = this.tileAt(p.worldX, p.worldY); });
     this.input.on('pointerdown', (p) => {
       if (p.rightButtonDown && p.rightButtonDown()) {
-        this.selectWeapon(null);
+        this.selectCard(null);
         this.selectTower(null);
         return;
       }
@@ -362,7 +389,7 @@ export class GameScene extends Phaser.Scene {
   // takes effect mid-turn. A short settle at the end lets the last shots and floats land.
   runPlayback(events) {
     this.busy = true;
-    this.view.actions = 0;
+    this.view.cardPlayed = true;
     this.stepMs = STEP_MS;
     for (const s of this.enemySprites.values()) s.preview = null; // previews hidden while moving
     const beats = planPlayback(events);
@@ -398,7 +425,7 @@ export class GameScene extends Phaser.Scene {
         this.toastReason(result.reason);
         return;
       }
-      this.selectWeapon(null);
+      this.selectCard(null);
       this.runPlayback(result.events);
     }
     this.skipPlayback();
@@ -440,14 +467,6 @@ export class GameScene extends Phaser.Scene {
 
   renderEvent(ev) {
     switch (ev.type) {
-      case 'bonus': {
-        this.view.corks += ev.caps;
-        const at = this.hud.capsTarget();
-        this.floatText(Math.max(at.x, 60), HUD_HEIGHT + 16, `+${ev.caps} 🧢`, PALETTE.capsText, DEPTH.hud + 2);
-        this.hud.bumpCaps();
-        this.play('cork');
-        break;
-      }
       case 'wave-start':
         this.view.wave = ev.wave;
         this.toast(`Wave ${ev.wave} incoming! 🚪`, PALETTE.text);
@@ -651,7 +670,7 @@ export class GameScene extends Phaser.Scene {
   endLevel(won) {
     if (this.ended) return;
     this.ended = true;
-    this.selectWeapon(null);
+    this.selectCard(null);
     this.selectTower(null);
     this.input.enabled = false;
     if (this.input.keyboard) this.input.keyboard.enabled = false;
@@ -997,7 +1016,8 @@ export class GameScene extends Phaser.Scene {
   drawHover() {
     const g = this.hoverGfx;
     g.clear();
-    if (this.selectedWeaponId && this.hoverTile) {
+    const building = this.pendingCard && this.pendingCard.kind === 'build' ? this.pendingCard.weaponId : null;
+    if (building && this.hoverTile) {
       const { x, y } = this.hoverTile;
       const ok = this.state.tileType(x, y) === 'buildable';
       const p = this.toPixels(x, y);
@@ -1005,7 +1025,7 @@ export class GameScene extends Phaser.Scene {
       g.fillRoundedRect(p.x + 2, p.y + 2, TILE - 4, TILE - 4, 7);
       g.lineStyle(2, ok ? PALETTE.good : PALETTE.invalidRange, 1);
       g.strokeRoundedRect(p.x + 3, p.y + 3, TILE - 6, TILE - 6, 6);
-      this.drawRange(g, x, y, weaponStats(this.weapons.get(this.selectedWeaponId), 0).range, ok);
+      this.drawRange(g, x, y, weaponStats(this.weapons.get(building), 0).range, ok);
       return;
     }
     const tower = this.state.towers.find((t) => t.id === this.selectedTowerId)

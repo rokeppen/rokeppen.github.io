@@ -1,7 +1,7 @@
-// Top bar: white stat cards (🧢 caps, 🍺 kegs, "Wave n/total · Turn t", the action dots,
-// "Next wave in N turns" with the coming guests) and the chunky game-wide buttons
-// (Victory Bell = gold, End turn = navy, ⏩ / mute / levels = white).
-// Keys: Space end turn, Enter skip to the next round, B bell, F ⏩ fast playback, M mute.
+// Top bar: white stat cards (🧢 caps score, 🍺 kegs, "Wave n/total · Turn t", whether this
+// turn's card is played, "Next wave in N turns" with the coming guests) and the chunky
+// game-wide buttons (End turn = navy, ⏩ / mute / levels = white). The bell is a card.
+// Keys: Space end turn, Enter skip to the next round, F ⏩ fast playback, M mute.
 // The numbers come from scene.view, which follows the state except while the guests' turn
 // plays back (then it changes event by event). (Internally caps are corks, kegs are wine.)
 import { PALETTE, HUD_HEIGHT, css } from '../theme.js';
@@ -12,7 +12,6 @@ const DEPTH = 10;
 const CARD_H = 42;
 const GAP = 8;
 const MAX_PREVIEW = 5; // guest kinds shown in the next-wave card
-const ACTIONS_PER_TURN = 3; // the engine's per-turn action count (dots shown)
 
 export function nextWaveText(n) {
   if (!Number.isFinite(n)) return 'Next wave soon';
@@ -37,8 +36,6 @@ export class Hud {
     this.fastButton = new Button(scene, place(56), by, 56, h, '', () => this.toggleFast(), { size: 15 });
     this.endTurnButton = new Button(scene, place(140), by, 140, h, 'End turn ▶', () => scene.endTurn(),
       { size: 16, variant: 'primary' });
-    this.bellButton = new Button(scene, place(148), by, 148, h, '🔔 Victory Bell', () => scene.ringBell(),
-      { size: 16, variant: 'gold' });
     this.buttonsLeft = x; // cards must end before this
 
     // Stat cards: [value, small label]. Built once; reflow() moves and resizes them.
@@ -46,7 +43,7 @@ export class Hud {
       corks: this.makeCard('caps', PALETTE.text),
       wine: this.makeCard('kegs', PALETTE.text),
       wave: this.makeCard('', PALETTE.text),
-      actions: this.makeCard('actions', PALETTE.goodText),
+      card: this.makeCard('', PALETTE.goodText),
     };
     this.previewCard = { bg: null, w: 0, objects: [], width: 0 };
     this.previewInfo = null; // { waveIndex, nextWaveIn } the next-wave card shows
@@ -57,7 +54,6 @@ export class Hud {
       kb.on('keydown-SPACE', (e) => { if (!e?.repeat && !scene.busy) scene.endTurn(); });
       // Enter skips to the next round (ends the turn without animation, or finishes it).
       kb.on('keydown-ENTER', (e) => { if (!e?.repeat) scene.skipToNextRound(); });
-      kb.on('keydown-B', () => scene.ringBell());
       kb.on('keydown-F', () => this.toggleFast());
       kb.on('keydown-M', () => this.toggleMute());
     }
@@ -112,12 +108,10 @@ export class Hud {
       this.cards.wave.value.setText(v);
       dirty = true;
     });
-    const left = Math.max(0, Math.min(ACTIONS_PER_TURN, view.actions));
-    this.set('actions', left, (v) => {
-      const c = this.cards.actions;
-      c.value.setText('●'.repeat(v) + '○'.repeat(ACTIONS_PER_TURN - v));
-      c.value.setColor(css(v > 0 ? PALETTE.goodText : PALETTE.muted));
-      c.sub.setText(`${v}/${ACTIONS_PER_TURN} actions`);
+    this.set('card', !!view.cardPlayed, (played) => {
+      const c = this.cards.card;
+      c.value.setText(played ? '🃏 Card played' : '🃏 Play 1 card');
+      c.value.setColor(css(played ? PALETTE.muted : PALETTE.goodText));
       dirty = true;
     });
     // While the guests' turn plays back the state already holds the next turn: keep the old
@@ -133,8 +127,6 @@ export class Hud {
 
     const over = state.over || this.scene.ended;
     this.endTurnButton.setEnabled(!busy && !over).setText(busy ? "⏳ Guests' turn" : 'End turn ▶');
-    this.bellButton.setEnabled(!state.bellUsed && !over && !busy)
-      .setText(state.bellUsed ? '🔔 Bell rung' : '🔔 Victory Bell');
     this.fastButton.setText(this.scene.fast ? '⏩ 3×' : '⏩ 1×');
     this.muteButton.setText(sfx && sfx.muted ? '🔇' : '🔊');
   }
@@ -148,7 +140,7 @@ export class Hud {
       for (const o of [c.bg, c.value, c.sub]) if (o) { o.baseScale = 1; o.setScale(1); }
     }
     let x = 14;
-    const order = [['corks', 96], ['wine', 84], ['wave', 120], ['actions', 112]];
+    const order = [['corks', 96], ['wine', 84], ['wave', 120], ['card', 120]];
     for (const [key, min] of order) {
       const c = this.cards[key];
       const w = snap(Math.max(min, this.inner(c) + 28));
