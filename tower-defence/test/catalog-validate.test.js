@@ -131,6 +131,17 @@ test('fallbackSprite must be a non-empty emoji, not a URL', () => {
   assert.deepEqual(validateWeapon(weapon({ sprite: 'https://x.test/a.png', fallbackSprite: '🍺' })), []);
 });
 
+test('sprite: required; an image URL must have a host', () => {
+  for (const [check, mk] of [[validateWeapon, weapon], [validateEnemy, enemy]]) {
+    assert.deepEqual(check(mk({ sprite: 'https://x.supabase.co/storage/v1/object/public/sprites/a.png' })), []);
+    assert.deepEqual(check(mk({ sprite: '🍺' })), []);
+    assert.ok(check(mk({ sprite: 'http://' })).length);
+    assert.ok(check(mk({ sprite: 'https:// spaces .png' })).length);
+    assert.ok(check(mk({ sprite: '' })).length);
+    assert.ok(check(mk({ sprite: undefined })).length);
+  }
+});
+
 test('levelsUsing counts a guest on a level guest list (enemyIds), not only in waves', () => {
   const levels = [
     { id: 'a', name: 'A', enemyIds: ['e1', 'e2'], waves: [[{ enemyId: 'e2' }]] },

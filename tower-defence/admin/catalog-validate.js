@@ -12,6 +12,19 @@ export const MAX_QUOTE_LENGTH = 120;
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isUrl = (s) => /^https?:\/\//.test(s);
 
+// An emoji, or an http(s) image URL with a host.
+function checkSprite(errors, v) {
+  if (typeof v !== 'string' || !v.trim()) return errors.push('sprite is required');
+  if (!isUrl(v)) return;
+  let host = '';
+  try {
+    host = new URL(v).hostname;
+  } catch {
+    // invalid URL: reported below
+  }
+  if (!host) errors.push('image URL is not a valid web address');
+}
+
 function checkFallbackSprite(errors, v) {
   if (typeof v !== 'string' || !v.trim()) errors.push('fallback emoji is required');
   else if (isUrl(v)) errors.push('fallback emoji must be an emoji, not an image URL');
@@ -80,6 +93,7 @@ export function validateWeapon(w) {
       errors.push(`${tier}: effectStrength must be below 1 for slow`);
     }
   });
+  checkSprite(errors, w.sprite);
   checkFallbackSprite(errors, w.fallbackSprite);
   return errors;
 }
@@ -93,6 +107,7 @@ export function validateEnemy(e) {
   checkNumber(errors, 'wineDamage', e.wineDamage, { int: true });
   checkQuotes(errors, e.quotes);
   checkImmuneTo(errors, e.immuneTo);
+  checkSprite(errors, e.sprite);
   checkFallbackSprite(errors, e.fallbackSprite);
   return errors;
 }

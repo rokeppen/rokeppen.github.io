@@ -59,7 +59,7 @@ function initFallbackSprite(item, dflt) {
 // Before save: trimmed fallback; an emoji sprite always equals the fallback emoji.
 function normalizeSprite(item) {
   if (typeof item.fallbackSprite === 'string') item.fallbackSprite = item.fallbackSprite.trim();
-  if (!isUrl(item.sprite)) item.sprite = item.fallbackSprite;
+  if (!isUrl(item.sprite) && !isUrl(item.fallbackSprite)) item.sprite = item.fallbackSprite;
 }
 
 // A sprite as DOM: an <img> for an image URL (falls back to the emoji if it fails to load),
@@ -73,31 +73,38 @@ function spriteView(sprite, fallback, className) {
 
 /**
  * Image box (Upload / Clear + preview) and the fallback emoji input, bound to draft.sprite and
- * draft.fallbackSprite. ctx.setBusy(bool) blocks the form's Save while an upload runs.
- * `savedSprite` is the sprite currently in the DB: images uploaded in this form and replaced
- * before saving are removed right away (nothing references them); the saved one is only
- * removed after the new save succeeds (see renderForm).
+ * draft.fallbackSprite. ctx.setBusy(bool) blocks the form's Save while an upload runs;
+ * renderForm calls ctx.setSaving(bool) to block Upload/Clear while a save runs.
+ * ctx.savedSprite is the sprite the DB currently points at (renderForm updates it as soon as a
+ * save succeeds): images uploaded in this form and replaced before saving are removed right
+ * away (nothing references them); the saved one is only removed by renderForm after a save
+ * that replaced it succeeds.
  */
 function spriteFields(draft, ctx, dflt) {
   initFallbackSprite(draft, dflt);
-  const savedSprite = ctx.savedSprite;
   const preview = h('div', { className: 'sprite-preview' });
   const message = h('p', { className: 'error', role: 'alert' });
   const fileInput = h('input', { type: 'file', accept: ALLOWED_TYPES.join(','), hidden: true });
   const upload = h('button', { type: 'button', className: 'secondary', textContent: 'Upload image' });
   const clear = h('button', { type: 'button', className: 'secondary', textContent: 'Clear image' });
-  let busy = false;
+  let busy = false; // uploading
+  let saving = false; // the form's save is in flight
+  // Whether draft.sprite is an image (vs. mirroring the fallback emoji), tracked separately so
+  // a URL typed into the fallback box never becomes the image.
+  let hasImage = isUrl(draft.sprite);
 
   const sync = () => {
     preview.replaceChildren(spriteView(draft.sprite, draft.fallbackSprite, 'sprite-img'));
-    upload.disabled = busy || state.readOnly;
-    clear.disabled = busy || state.readOnly || !isUrl(draft.sprite);
-    fileInput.disabled = busy || state.readOnly;
+    const off = busy || saving || state.readOnly;
+    upload.disabled = off;
+    clear.disabled = off || !hasImage;
+    fileInput.disabled = off;
   };
   const setBusy = (b) => { busy = b; ctx.setBusy(b); sync(); };
+  ctx.setSaving = (b) => { saving = b; sync(); };
   // Drop an image uploaded in this form that is about to be replaced (never the saved one).
   const discardUnsaved = (url) => {
-    if (isUrl(url) && url !== savedSprite) removeSprite(state.client, url);
+    if (isUrl(url) && url !== ctx.savedSprite) removeSprite(state.client, url);
   };
 
   upload.onclick = () => { message.textContent = ''; fileInput.click(); };
@@ -112,8 +119,9 @@ function spriteFields(draft, ctx, dflt) {
     try {
       const result = await uploadSprite(state.client, file);
       if (!result.ok) { message.textContent = result.error; return; }
-      discardUnsaved(draft.sprite);
+      if (hasImage) discardUnsaved(draft.sprite);
       draft.sprite = result.url;
+      hasImage = true;
     } catch (e) {
       message.textContent = `Upload failed: ${e?.message ?? e}`;
     } finally {
@@ -122,15 +130,20 @@ function spriteFields(draft, ctx, dflt) {
   };
   clear.onclick = () => {
     message.textContent = '';
-    discardUnsaved(draft.sprite);
+    if (hasImage) discardUnsaved(draft.sprite);
     draft.sprite = draft.fallbackSprite;
+    hasImage = false;
     sync();
   };
 
-  const fallback = h('input', { type: 'text', value: draft.fallbackSprite ?? '', maxLength: 16, className: 'emoji-input' });
+  const fallback = h('input', {
+    type: 'text', value: draft.fallbackSprite ?? '', maxLength: 16, className: 'emoji-input', disabled: state.readOnly,
+  });
   fallback.oninput = () => {
     draft.fallbackSprite = fallback.value;
-    if (!isUrl(draft.sprite)) draft.sprite = fallback.value;
+    // Without an image the sprite is the emoji. A URL typed here is never mirrored (validation
+    // rejects it as a fallback); the sprite keeps the last emoji until it's fixed.
+    if (!hasImage && !isUrl(fallback.value)) draft.sprite = fallback.value;
     sync();
   };
   sync();
@@ -152,13 +165,13 @@ function quotesField(draft) {
   const add = h('button', { type: 'button', className: 'secondary', textContent: '+ Add quote' });
   const renderQuotes = () => {
     list.replaceChildren(...draft.quotes.map((q, i) => {
-      const input = h('input', { type: 'text', value: q, maxLength: MAX_QUOTE_LENGTH, placeholder: 'Something this guest says' });
+      const input = h('input', { type: 'text', value: q, maxLength: MAX_QUOTE_LENGTH, placeholder: 'Something this guest says', disabled: state.readOnly });
       input.oninput = () => { draft.quotes[i] = input.value; };
-      const rm = h('button', { type: 'button', className: 'secondary', textContent: 'Remove' });
+      const rm = h('button', { type: 'button', className: 'secondary', textContent: 'Remove', disabled: state.readOnly });
       rm.onclick = () => { draft.quotes.splice(i, 1); renderQuotes(); };
       return h('div', { className: 'quote-row' }, input, rm);
     }));
-    add.disabled = draft.quotes.length >= MAX_QUOTES;
+    add.disabled = state.readOnly || draft.quotes.length >= MAX_QUOTES;
   };
   add.onclick = () => {
     draft.quotes.push('');
@@ -174,7 +187,7 @@ function quotesField(draft) {
 function immunityField(draft) {
   draft.immuneTo ??= [];
   const boxes = IMMUNITY_EFFECTS.map((fx) => {
-    const cb = h('input', { type: 'checkbox', checked: draft.immuneTo.includes(fx) });
+    const cb = h('input', { type: 'checkbox', checked: draft.immuneTo.includes(fx), disabled: state.readOnly });
     cb.onchange = () => {
       const set = new Set(draft.immuneTo);
       if (cb.checked) set.add(fx); else set.delete(fx);
@@ -203,7 +216,9 @@ function mountCatalog(el, cfg) {
   }
 
   // Runs a save/delete, shows any failure inline, always re-enables the button.
-  async function write(op, errorEl, btn, onOk) {
+  // onWritten runs as soon as the DB write succeeded (even if the reload then fails);
+  // onOk only after the reload, right before the re-render.
+  async function write(op, errorEl, btn, onOk, onWritten = () => {}) {
     btn.disabled = true;
     try {
       let result;
@@ -214,6 +229,7 @@ function mountCatalog(el, cfg) {
         return;
       }
       if (!result?.ok) { errorEl.textContent = result?.error ?? 'Save failed'; return; }
+      onWritten();
       try {
         await refresh();
       } catch (e) {
@@ -234,12 +250,13 @@ function mountCatalog(el, cfg) {
     const form = h('form', { className: 'catalog-form' });
     form.append(h('h2', {}, isNew ? `New ${cfg.noun}` : draft.name || cfg.noun));
     if (!isNew) form.append(h('p', { className: 'muted' }, `id: ${draft.id}`));
-    const savedSprite = isNew ? null : source.sprite;
     const save = h('button', { type: 'submit', textContent: 'Save', disabled: state.readOnly });
     let uploading = false;
     const ctx = {
-      savedSprite,
+      // The sprite the DB points at; updated as soon as a save succeeds (see onsubmit).
+      savedSprite: isNew ? null : source.sprite,
       setBusy: (b) => { uploading = b; save.disabled = b || state.readOnly; },
+      setSaving: () => {}, // replaced by spriteFields
     };
     form.append(...cfg.buildFields(draft, ctx));
     const snapshot = JSON.stringify(draft);
@@ -266,12 +283,20 @@ function mountCatalog(el, cfg) {
       cfg.normalize(draft);
       const problems = cfg.validate(draft);
       if (problems.length) { error.textContent = problems.join('; '); return; }
-      await write(() => cfg.save(draft), error, save, () => {
-        selectedId = draft.id;
-        // The previously saved image was replaced or cleared: delete it now that the DB no
-        // longer points at it (best effort, not awaited).
-        if (isUrl(savedSprite) && savedSprite !== draft.sprite) removeSprite(state.client, savedSprite);
-      });
+      // What this save writes; the draft may change while the save is in flight.
+      const persisted = draft.sprite;
+      ctx.setSaving(true);
+      try {
+        await write(() => cfg.save(draft), error, save, () => { selectedId = draft.id; }, () => {
+          const previous = ctx.savedSprite;
+          ctx.savedSprite = persisted;
+          // The previously saved image was replaced or cleared: delete it now that the DB no
+          // longer points at it (best effort, not awaited).
+          if (isUrl(previous) && previous !== persisted) removeSprite(state.client, previous);
+        });
+      } finally {
+        ctx.setSaving(false);
+      }
     };
     return form;
   }
