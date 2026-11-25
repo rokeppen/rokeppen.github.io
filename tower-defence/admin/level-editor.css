@@ -69,3 +69,27 @@
 .le-save .le-state.dirty { color: var(--wine); font-weight: bold; }
 .le-reasons { margin: 8px 0 0; padding-left: 18px; color: var(--error); font-size: .9rem; }
 .le-reasons.notes { color: var(--muted); }
+
+/* Starting resources, weapons, waves */
+.le-section h3 { margin: 0 0 8px; font-size: 1rem; color: var(--wine); }
+.le-fields { display: flex; flex-wrap: wrap; gap: 12px 16px; }
+.le-fields label { display: grid; gap: 2px; font-size: .85rem; color: var(--muted); }
+.le-fields input { width: 7em; }
+.le-weapon-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
+.le-weapons .le-check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.le-sprite { font-size: 1.2rem; width: 1.5em; text-align: center; }
+.le-cost { margin-left: auto; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.le-missing { color: var(--error); font-style: italic; }
+.le-wave-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
+.le-wave { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--cream); }
+.le-wave-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.le-wave-head .le-spacer { flex: 1; }
+.le-wave-summary { color: var(--muted); }
+.le-icon { padding: 2px 8px; }
+.le-groups { border-collapse: collapse; margin: 6px 0; width: 100%; }
+.le-groups th { text-align: left; font-weight: normal; font-size: .8rem; color: var(--muted); padding: 0 6px 2px 0; }
+.le-groups td { padding: 2px 6px 2px 0; }
+.le-groups input { width: 5.5em; }
+.le-groups select { font: inherit; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); max-width: 14em; }
+.le-add-group { padding: 2px 10px; font-size: .9rem; }
+@media (max-width: 560px) { .le-groups input { width: 4em; } .le-groups select { max-width: 9em; } }

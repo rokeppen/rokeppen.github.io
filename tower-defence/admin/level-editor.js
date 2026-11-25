@@ -3,8 +3,9 @@
 // Never use innerHTML here: names come from the database.
 import { state, refresh } from './admin.js';
 import {
-  newLevel, duplicateLevel, cloneLevel, applyTool, extendPath, toggleBlocked, eraseTile,
-  resizeLevel, canSave, MIN_SIZE, MAX_SIZE,
+  newLevel, duplicateLevel, applyTool, extendPath, toggleBlocked, eraseTile,
+  resizeLevel, canSave, MIN_SIZE, MAX_SIZE, prepareForEditor,
+  setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup, waveSummary,
 } from './editor-state.js';
 
 const TOOLS = [
@@ -23,9 +24,11 @@ const ed = {
   parts: {},         // section id -> container element
   selectedId: null,
   draft: null,       // the level being edited (never mutated; replaced on each edit)
-  savedJson: null,   // JSON of the last saved/loaded version; null = never saved
+  savedJson: null,   // JSON of the last saved/loaded version (a new level: its initial snapshot)
+  isNew: false,      // draft has never been saved
   tool: 'path',
   warnings: [],      // resize warnings (banner)
+  loadWarnings: [],  // repairs made when a raw (possibly invalid) DB level was loaded (banner)
   message: null,     // { kind: 'ok'|'error', text }
   history: [],       // previous drafts for undo
   paint: null,       // active pointer stroke
@@ -50,7 +53,7 @@ const key = (t) => `${t.x},${t.y}`;
 const savedLevels = () => [...(state.data?.levels ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 const catalog = () => ({ weapons: state.data?.weapons ?? [], enemies: state.data?.enemies ?? [] });
 const isSaved = (id) => savedLevels().some((l) => l.id === id);
-const isDirty = () => !!ed.draft && (ed.savedJson === null || JSON.stringify(ed.draft) !== ed.savedJson);
+const isDirty = () => !!ed.draft && JSON.stringify(ed.draft) !== ed.savedJson;
 const nextSortOrder = () => Math.max(0, ...savedLevels().map((l) => l.sortOrder ?? 0)) + 1;
 const active = () => !!ed.view?.isConnected;
 
@@ -63,18 +66,28 @@ function ensureStylesheet() {
 
 // ---------- state transitions ----------
 
+// Saved levels may be raw invalid DB rows: prepareForEditor sanitises them and reports every
+// repair (shown in the banner). Dirtiness compares against the level as stored, so a repaired
+// level shows "Unsaved changes" until the repair is saved. A new level compares against its
+// initial snapshot, so an untouched one isn't "dirty".
 function load(level, { isNew = false } = {}) {
-  ed.draft = cloneLevel(level);
-  ed.selectedId = level.id;
-  ed.savedJson = isNew ? null : JSON.stringify(ed.draft);
+  const { level: draft, warnings } = prepareForEditor(level, catalog());
+  ed.draft = draft;
+  ed.selectedId = draft.id;
+  ed.isNew = isNew;
+  ed.savedJson = JSON.stringify(isNew ? draft : level);
+  ed.loadWarnings = warnings;
   ed.history = [];
   ed.warnings = [];
   ed.message = null;
 }
 
 function confirmDiscard() {
-  return !isDirty() || confirm(`"${ed.draft.name}" has unsaved changes. Discard them?`);
+  if (ed.busy) return false; // never switch level while a save/delete is in flight
+  return !isDirty() || confirm(`"${ed.draft.name || 'This level'}" has unsaved changes. Discard them?`);
 }
+
+const blankLevel = (sortOrder) => ({ ...newLevel(), sortOrder, weaponIds: catalog().weapons.map((w) => w.id) });
 
 // Replace the draft. `record` pushes the previous draft onto the undo stack.
 // `render` lists the section ids to re-render (status and list always refresh).
@@ -107,7 +120,7 @@ function selectLevel(level) {
 
 function createLevel() {
   if (!confirmDiscard()) return;
-  load({ ...newLevel(), sortOrder: nextSortOrder() }, { isNew: true });
+  load(blankLevel(nextSortOrder()), { isNew: true });
   ed.tool = 'start';
   renderAll();
 }
@@ -119,51 +132,87 @@ function duplicateCurrent() {
   renderAll();
 }
 
+const errorText = (e) => e?.message ?? String(e);
+
+// Runs a DB write then reloads state.data. Returns { ok, error, reloadError }: a failed reload
+// after a successful write is reported separately (the write did happen).
+async function writeAndReload(write) {
+  let res;
+  try {
+    res = await write();
+  } catch (e) {
+    return { ok: false, error: errorText(e) };
+  }
+  if (!res?.ok) return { ok: false, error: res?.error ?? 'unknown error' };
+  try {
+    await refresh();
+  } catch (e) {
+    return { ok: true, reloadError: errorText(e) };
+  }
+  return { ok: true };
+}
+
 async function deleteCurrent() {
   const level = ed.draft;
-  if (!level || !confirm(`Delete "${level.name}"? This can't be undone.`)) return;
+  if (!level || ed.busy || !confirm(`Delete "${level.name || 'this level'}"? This can't be undone.`)) return;
+  let reloadError;
   if (isSaved(level.id)) {
     ed.busy = true;
     renderPart('save');
-    let res;
-    try {
-      res = await state.dataSource.deleteLevel(level.id);
-      if (res.ok) await refresh();
-    } catch (e) {
-      res = { ok: false, error: e.message ?? String(e) };
-    }
+    renderList();
+    const res = await writeAndReload(() => state.dataSource.deleteLevel(level.id));
     ed.busy = false;
     if (!res.ok) {
       ed.message = { kind: 'error', text: `Delete failed: ${res.error}` };
       renderAll();
       return;
     }
+    reloadError = res.reloadError;
+  }
+  if (reloadError) {
+    // state.data is stale and still lists the level: drop it locally so it isn't shown.
+    state.data = { ...state.data, levels: state.data.levels.filter((l) => l.id !== level.id) };
   }
   selectFirstOrNew();
-  ed.message = { kind: 'ok', text: `Deleted "${level.name}".` };
+  ed.message = reloadError
+    ? { kind: 'error', text: `Deleted "${level.name}", but couldn't reload the levels: ${reloadError}` }
+    : { kind: 'ok', text: `Deleted "${level.name}".` };
   renderAll();
 }
 
 async function saveCurrent() {
   const level = ed.draft;
-  if (state.readOnly || !canSave(level, catalog()).ok) return;
+  if (state.readOnly || ed.busy || !canSave(level, catalog()).ok) return;
   ed.busy = true;
   renderPart('save');
-  let res;
-  try {
-    res = await state.dataSource.saveLevel(level);
-    if (res.ok) await refresh();
-  } catch (e) {
-    res = { ok: false, error: e.message ?? String(e) };
-  }
+  renderList();
+  const res = await writeAndReload(() => state.dataSource.saveLevel(level));
   ed.busy = false;
+  // Level switching is blocked while busy, but guard anyway: never mark another draft as saved.
+  const stillHere = ed.draft?.id === level.id;
   if (res.ok) {
-    ed.savedJson = JSON.stringify(level);
-    ed.message = { kind: 'ok', text: `Saved "${level.name}".` };
+    if (stillHere) {
+      ed.savedJson = JSON.stringify(level);
+      ed.isNew = false;
+      ed.loadWarnings = [];
+    }
+    if (res.reloadError) {
+      // Keep the level list consistent with what was just written.
+      const levels = (state.data?.levels ?? []).filter((l) => l.id !== level.id);
+      state.data = { ...state.data, levels: [...levels, level] };
+    }
+    ed.message = res.reloadError
+      ? { kind: 'error', text: `Saved "${level.name}", but couldn't reload: ${res.reloadError}` }
+      : { kind: 'ok', text: `Saved "${level.name}".` };
   } else {
     ed.message = { kind: 'error', text: `Save failed: ${res.error}` };
   }
   renderAll();
+}
+
+function playCurrent() {
+  const url = new URL(`../play.html?level=${encodeURIComponent(ed.draft.id)}&preview=1`, location.href);
+  window.open(url.href, '_blank', 'noopener');
 }
 
 function resize(cols, rows) {
@@ -179,19 +228,21 @@ function resize(cols, rows) {
 function selectFirstOrNew() {
   const first = savedLevels()[0];
   if (first) load(first);
-  else load({ ...newLevel(), sortOrder: 1 }, { isNew: true });
+  else load(blankLevel(1), { isNew: true });
 }
 
 // ---------- rendering ----------
 
 // Sections of the editor column, rendered top to bottom, each in its own container so it
-// can be re-rendered alone. Task 10: add { id, render } entries (weapons, waves, settings)
-// and put a "Play this level" button in saveSection's actions.
+// can be re-rendered alone.
 const SECTIONS = [
   { id: 'banner', render: bannerSection },
   { id: 'details', render: detailsSection },
   { id: 'save', render: saveSection },
   { id: 'map', render: mapSection },
+  { id: 'settings', render: settingsSection },
+  { id: 'weapons', render: weaponsSection },
+  { id: 'waves', render: wavesSection },
 ];
 
 function renderAll() {
@@ -252,6 +303,15 @@ function listItem(shown, current, level, unsaved = false) {
 
 function bannerSection() {
   const out = [];
+  if (ed.loadWarnings.length) {
+    out.push(h('div', { className: 'banner', role: 'alert' },
+      h('div', {}, h('strong', {}, 'This level had problems and was repaired in the editor. Save to keep the repairs:'),
+        h('ul', {}, ed.loadWarnings.map((w) => h('li', { textContent: w })))),
+      h('button', {
+        type: 'button', className: 'secondary', textContent: '×', 'aria-label': 'Dismiss',
+        onclick: () => { ed.loadWarnings = []; renderPart('banner'); },
+      })));
+  }
   if (ed.warnings.length) {
     out.push(h('div', { className: 'banner', role: 'alert' },
       h('div', {}, h('strong', {}, 'Resizing removed some of the map:'),
@@ -303,22 +363,157 @@ function saveSection() {
   const level = ed.draft;
   const { ok, errors } = canSave(level, catalog());
   const dirty = isDirty();
+  const saved = isSaved(level.id);
   const saveBtn = h('button', {
     type: 'button',
     textContent: ed.busy ? 'Saving…' : 'Save',
-    disabled: !ok || !dirty || state.readOnly || ed.busy,
+    disabled: !ok || !(dirty || !saved) || state.readOnly || ed.busy,
     onclick: saveCurrent,
   });
-  let stateText = dirty ? (ed.savedJson === null ? 'Not saved yet' : 'Unsaved changes') : 'All changes saved';
+  // The game loads the level from the database, so only a saved, unchanged, valid level can be played.
+  const playable = ok && saved && !dirty && !ed.busy;
+  const playBtn = h('button', {
+    type: 'button', className: 'secondary', textContent: 'Play this level ↗',
+    title: playable ? 'Opens the game with this level in a new tab (unpublished levels included)'
+      : 'Save a valid level first, then play-test it',
+    disabled: !playable, onclick: playCurrent,
+  });
+  const undoBtn = h('button', {
+    type: 'button', className: 'secondary', textContent: 'Undo', title: 'Undo (Ctrl+Z)',
+    disabled: !ed.history.length, onclick: undo,
+  });
+  let stateText = !saved ? 'Not saved yet' : dirty ? 'Unsaved changes' : 'All changes saved';
   if (state.readOnly) stateText = 'Read-only: showing bundled data, saving is disabled';
   return h('section', { className: 'le-section', 'aria-label': 'Save' },
     h('div', { className: 'le-save' },
       saveBtn,
-      h('span', { className: `le-state${dirty ? ' dirty' : ''}`, textContent: stateText })),
+      undoBtn,
+      playBtn,
+      h('span', { className: `le-state${dirty || !saved ? ' dirty' : ''}`, textContent: stateText })),
     errors.length
       ? h('ul', { className: `le-reasons${ok ? ' notes' : ''}`, 'aria-label': ok ? 'Notes' : "Why this level can't be saved yet" },
         errors.map((e) => h('li', { textContent: e })))
       : null);
+}
+
+// A number input that stores Numbers. Empty/garbage input reverts to the current value;
+// range problems (0 guests, a negative delay…) are stored and reported by canSave.
+// `get` returns the current stored value.
+function numberInput(get, onNumber, attrs = {}) {
+  const input = h('input', { type: 'number', value: String(get() ?? ''), ...attrs });
+  input.onchange = () => {
+    const n = input.valueAsNumber;
+    if (Number.isFinite(n)) onNumber(n);
+    else input.value = String(get() ?? '');
+  };
+  return input;
+}
+
+function settingsSection() {
+  const field = (key, label, hint) => h('label', { title: hint }, label,
+    numberInput(() => ed.draft[key], (n) => update({ ...ed.draft, [key]: n }, { render: [] }), { min: 1, step: 1 }));
+  return h('section', { className: 'le-section le-settings', 'aria-label': 'Starting resources' },
+    h('h3', {}, 'Starting resources'),
+    h('div', { className: 'le-fields' },
+      field('startingCorks', 'Starting corks', 'Corks to spend on weapons at the start'),
+      field('startingWine', 'Starting wine (bottles)', 'Lives: a guest reaching the end drinks some wine')));
+}
+
+function weaponsSection() {
+  const weapons = catalog().weapons;
+  const chosen = Array.isArray(ed.draft.weaponIds) ? ed.draft.weaponIds : [];
+  const missing = chosen.filter((id) => !weapons.some((w) => w.id === id));
+  const boxes = [];
+  const onchange = () => update(setWeapons(ed.draft, boxes.filter((b) => b.checked).map((b) => b.dataset.id)), { render: [] });
+  const option = (id, ...label) => {
+    const box = h('input', { type: 'checkbox', checked: chosen.includes(id), onchange, dataset: { id } });
+    boxes.push(box);
+    return h('li', {}, h('label', { className: 'le-check' }, box, ...label));
+  };
+  const items = [
+    ...weapons.map((w) => option(w.id,
+      h('span', { className: 'le-sprite', textContent: w.sprite ?? '' }),
+      h('span', { textContent: w.name ?? w.id }),
+      h('span', { className: 'le-cost', textContent: `${w.cost ?? '?'} corks` }))),
+    ...missing.map((id) => option(id, h('span', { className: 'le-missing', textContent: `'${id}' (no longer exists)` }))),
+  ];
+  return h('section', { className: 'le-section le-weapons', 'aria-label': 'Weapons' },
+    h('h3', {}, 'Weapons available in this level'),
+    items.length
+      ? h('ul', { className: 'le-weapon-list' }, items)
+      : h('p', { className: 'muted' }, 'No weapons yet — create one on the Weapons tab first.'));
+}
+
+function wavesSection() {
+  const enemies = catalog().enemies;
+  const waves = Array.isArray(ed.draft.waves) ? ed.draft.waves : [];
+  const total = waves.flat().reduce((n, g) => n + (Number.isFinite(g?.count) ? g.count : 0), 0);
+  return h('section', { className: 'le-section le-waves', 'aria-label': 'Waves' },
+    h('h3', {}, `Waves (${waves.length})${total ? ` · ${total} guests in total` : ''}`),
+    enemies.length ? null : h('p', { className: 'muted' }, 'No guests yet — create one on the Enemies tab first.'),
+    waves.length
+      ? h('ol', { className: 'le-wave-list' }, waves.map((wave, wi) => waveCard(wave, wi, waves.length, enemies)))
+      : h('p', { className: 'muted' }, 'No waves yet.'),
+    h('button', {
+      type: 'button', className: 'secondary',
+      textContent: waves.length ? '+ Add wave (copy of the last one)' : '+ Add wave',
+      disabled: !waves.length && !enemies.length,
+      onclick: () => update(addWave(ed.draft, enemies[0]?.id), { render: ['waves'] }),
+    }));
+}
+
+function waveCard(wave, wi, count, enemies) {
+  const label = `Wave ${wi + 1}`;
+  const summary = h('span', { className: 'le-wave-summary', textContent: waveSummary(wave, enemies) });
+  const refreshSummary = () => { summary.textContent = waveSummary(ed.draft.waves[wi], enemies); };
+  const structural = (next) => update(next, { render: ['waves'] });
+  const btn = (text, title, disabled, onclick) => h('button', {
+    type: 'button', className: 'secondary le-icon', textContent: text, title, 'aria-label': title, disabled, onclick,
+  });
+  const groups = Array.isArray(wave) ? wave : [];
+  return h('li', { className: 'le-wave' },
+    h('div', { className: 'le-wave-head' },
+      h('strong', { textContent: label }), summary,
+      h('span', { className: 'le-spacer' }),
+      btn('↑', `Move ${label} up`, wi === 0, () => structural(moveWave(ed.draft, wi, -1))),
+      btn('↓', `Move ${label} down`, wi === count - 1, () => structural(moveWave(ed.draft, wi, 1))),
+      btn('✕', `Remove ${label}`, false, () => structural(removeWave(ed.draft, wi)))),
+    groups.length
+      ? h('table', { className: 'le-groups' },
+        h('thead', {}, h('tr', {},
+          ['Guest', 'Count', 'Interval (s)', 'Delay (s)', ''].map((t) => h('th', { textContent: t })))),
+        h('tbody', {}, groups.map((g, gi) => groupRow(g, wi, gi, enemies, refreshSummary, structural))))
+      : h('p', { className: 'muted' }, 'This wave has no guests.'),
+    h('button', {
+      type: 'button', className: 'secondary le-add-group', textContent: '+ Add guests',
+      disabled: !enemies.length, onclick: () => structural(addGroup(ed.draft, wi, enemies[0]?.id)),
+    }));
+}
+
+function groupRow(g, wi, gi, enemies, refreshSummary, structural) {
+  const at = `Wave ${wi + 1}, group ${gi + 1}`;
+  const remove = h('button', {
+    type: 'button', className: 'secondary le-icon', textContent: '✕', title: `Remove ${at}`, 'aria-label': `Remove ${at}`,
+    onclick: () => structural(removeGroup(ed.draft, wi, gi)),
+  });
+  if (!g || typeof g !== 'object') {
+    return h('tr', {}, h('td', { colSpan: 4, className: 'le-missing', textContent: 'Malformed group' }), h('td', {}, remove));
+  }
+  // Field edits don't re-render the section (keeps focus while tabbing); only the summary updates.
+  const set = (patch) => { update(updateGroup(ed.draft, wi, gi, patch), { render: [] }); refreshSummary(); };
+  const select = h('select', { 'aria-label': `${at}: guest`, onchange: () => set({ enemyId: select.value }) },
+    enemies.map((e) => h('option', { value: e.id, textContent: `${e.sprite ?? ''} ${e.name ?? e.id}`.trim() })),
+    enemies.some((e) => e.id === g.enemyId) ? null
+      : h('option', { value: String(g.enemyId), textContent: `'${g.enemyId}' (no longer exists)` }));
+  select.value = String(g.enemyId);
+  const num = (key, name, attrs) => h('td', {}, numberInput(
+    () => ed.draft.waves?.[wi]?.[gi]?.[key], (n) => set({ [key]: n }), { 'aria-label': `${at}: ${name}`, ...attrs }));
+  return h('tr', {},
+    h('td', {}, select),
+    num('count', 'count', { min: 1, step: 1 }),
+    num('intervalS', 'seconds between guests', { min: 0.1, step: 0.1 }),
+    num('delayS', 'delay before the group starts (s)', { min: 0, step: 0.5 }),
+    h('td', {}, remove));
 }
 
 function mapSection() {
@@ -327,12 +522,7 @@ function mapSection() {
     TOOLS.map((t) => h('button', {
       type: 'button', 'aria-pressed': String(t.id === ed.tool), title: `${t.label} (${t.key.toUpperCase()})`,
       onclick: () => { ed.tool = t.id; renderPart('map'); },
-    }, t.label, h('kbd', { textContent: t.key.toUpperCase() }))),
-    h('span', { className: 'le-spacer' }),
-    h('button', {
-      type: 'button', className: 'secondary', textContent: 'Undo', title: 'Undo (Ctrl+Z)',
-      disabled: !ed.history.length, onclick: undo,
-    }));
+    }, t.label, h('kbd', { textContent: t.key.toUpperCase() }))));
   return [
     toolbar,
     h('p', { className: 'le-hint', textContent: tool.hint }),
@@ -450,7 +640,7 @@ function endStroke() {
   ed.paint = null;
   if (p.before !== ed.draft) {
     pushHistory(p.before);
-    if (active()) renderPart('map'); // refresh Undo button state
+    if (active()) renderPart('save'); // refresh Undo button state
   }
 }
 
@@ -487,8 +677,13 @@ export function mountLevels(el) {
   ensureStylesheet();
   installListeners();
   ed.root = el;
-  // Keep the current draft across tab switches; otherwise pick the first level.
-  const keep = ed.draft && (isSaved(ed.draft.id) || ed.savedJson === null || isDirty());
-  if (!keep) selectFirstOrNew();
+  // Keep a new or edited draft across tab switches. A clean saved level is reloaded, so repairs
+  // reflect the current catalog (a weapon/guest may have been deleted on another tab).
+  const stored = ed.draft && savedLevels().find((l) => l.id === ed.draft.id);
+  const keep = ed.draft && (ed.isNew || isDirty());
+  if (!keep) {
+    if (stored) load(stored);
+    else selectFirstOrNew();
+  }
   renderAll();
 }
