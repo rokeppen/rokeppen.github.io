@@ -1,43 +1,44 @@
-// Top bar: corks, wine, wave counter and the game-wide buttons
-// (Next wave, Victory Bell, speed, mute, levels).
+// Top bar: white stat cards (🧢 caps, 🍺 kegs, wave, next-wave preview) and the chunky
+// game-wide buttons (Next wave = navy, Victory Bell = gold, speed / mute / levels = white).
 // Keys: Space/N next wave, B bell, F speed, M mute.
+// (Internally caps are state.corks and kegs are state.wine.)
 import { PALETTE, HUD_HEIGHT, css } from '../theme.js';
-import { Button, label } from './widgets.js';
+import { Button, label, icon } from './widgets.js';
+import { addCard, snap } from './textures.js';
+
+const DEPTH = 10;
+const CARD_H = 42;
+const GAP = 8;
+const MAX_PREVIEW = 5; // guest kinds shown in the next-wave card
 
 export class Hud {
   constructor(scene) {
     this.scene = scene;
     const { width } = scene.layout;
     const mid = HUD_HEIGHT / 2;
-    const depth = 10;
-
-    scene.add.rectangle(0, 0, width, HUD_HEIGHT, PALETTE.hudBar).setOrigin(0).setDepth(depth);
-    scene.add.rectangle(0, HUD_HEIGHT - 2, width, 2, PALETTE.towerRing, 0.6).setOrigin(0).setDepth(depth);
-
-    const name = scene.level.name.length > 22 ? `${scene.level.name.slice(0, 21)}…` : scene.level.name;
-    this.name = label(scene, 16, mid, name, { size: 16, color: PALETTE.hudMuted })
-      .setOrigin(0, 0.5).setDepth(depth);
-    // Stats flow left to right (see reflow), so a big cork count pushes the rest along.
-    this.statsX = 16 + Math.max(this.name.width, 90) + 24;
-    this.corks = label(scene, 0, mid, '', { size: 24, bold: true, color: PALETTE.accent })
-      .setOrigin(0, 0.5).setDepth(depth);
-    this.wine = label(scene, 0, mid, '', { size: 24, bold: true })
-      .setOrigin(0, 0.5).setDepth(depth);
-    this.wave = label(scene, 0, mid, '', { size: 20 }).setOrigin(0, 0.5).setDepth(depth);
-    this.preview = label(scene, 0, mid, '', { size: 16, color: PALETTE.hudMuted })
-      .setOrigin(0, 0.5).setDepth(depth);
+    this.mid = mid;
 
     // Right-aligned buttons, laid out from the right edge.
-    const h = 42;
-    let x = width - 12;
-    const place = (w) => { x -= w; const cx = x + w / 2; x -= 8; return cx; };
-    this.levelsButton = new Button(scene, place(48), mid, 48, h, '☰', () => scene.backToMenu(), { size: 20 });
-    this.muteButton = new Button(scene, place(48), mid, 48, h, '', () => this.toggleMute(), { size: 20 });
-    this.speedButton = new Button(scene, place(64), mid, 64, h, '', () => this.toggleSpeed(), { size: 17 });
-    this.bellButton = new Button(scene, place(176), mid, 176, h, '🔔 Victory Bell', () => this.ringBell(),
-      { fill: PALETTE.path });
-    this.waveButton = new Button(scene, place(156), mid, 156, h, '', () => this.nextWave(), { size: 18 });
-    this.buttonsLeft = x; // stats must end before this
+    const h = 40;
+    const by = mid - 2;
+    let x = width - 14;
+    const place = (w) => { x -= w; const cx = x + w / 2; x -= GAP; return cx; };
+    this.levelsButton = new Button(scene, place(44), by, 44, h, '☰', () => scene.backToMenu(), { size: 18 });
+    this.muteButton = new Button(scene, place(44), by, 44, h, '', () => this.toggleMute(), { size: 18 });
+    this.speedButton = new Button(scene, place(60), by, 60, h, '', () => this.toggleSpeed(), { size: 15 });
+    this.bellButton = new Button(scene, place(170), by, 170, h, '🔔 Victory Bell', () => this.ringBell(),
+      { size: 16, variant: 'gold' });
+    this.waveButton = new Button(scene, place(150), by, 150, h, '', () => this.nextWave(),
+      { size: 16, variant: 'primary' });
+    this.buttonsLeft = x; // cards must end before this
+
+    // Stat cards: [value, small label]. Built once; reflow() moves and resizes them.
+    this.cards = {
+      corks: this.makeCard('caps', PALETTE.text),
+      wine: this.makeCard('kegs', PALETTE.text),
+      wave: this.makeCard(this.shortName(scene.level.name), PALETTE.text),
+    };
+    this.previewCard = { bg: null, w: 0, objects: [], width: 0 };
 
     const kb = scene.input.keyboard;
     if (kb) {
@@ -51,10 +52,32 @@ export class Hud {
     this.update();
   }
 
+  shortName(name) {
+    return name.length > 18 ? `${name.slice(0, 17)}…` : name;
+  }
+
+  makeCard(small, color) {
+    const value = label(this.scene, 0, this.mid - 2, '', { size: 18, bold: true, color })
+      .setOrigin(0, 0.5).setDepth(DEPTH + 1);
+    const sub = label(this.scene, 0, this.mid - 1, small, { size: 12, color: PALETTE.muted })
+      .setOrigin(0, 0.5).setDepth(DEPTH + 1);
+    return { value, sub, bg: null, w: 0, x: 0 };
+  }
+
+  // Where flying caps land (centre of the caps value).
+  capsTarget() {
+    const c = this.cards.corks;
+    return { x: c.value.x + 14, y: this.mid };
+  }
+
+  bumpCaps() {
+    this.bump(this.cards.corks.value);
+  }
+
   nextWave() {
     const result = this.scene.state.startNextWave();
     if (!result.ok) this.scene.toastReason(result.reason);
-    else this.scene.toast(`Wave ${this.scene.state.waveIndex} incoming! 🚪`, PALETTE.accent);
+    else this.scene.toast(`Wave ${this.scene.state.waveIndex} incoming! 🚪`, PALETTE.text);
   }
 
   ringBell() {
@@ -81,22 +104,24 @@ export class Hud {
   update() {
     const { state, sfx } = this.scene;
     let dirty = false;
-    this.set('corks', `🍾 ${state.corks}`, (v, prev) => {
-      this.corks.setText(v);
+    this.set('corks', `🧢 ${state.corks}`, (v, prev) => {
+      this.cards.corks.value.setText(v);
       dirty = true;
-      if (prev !== undefined) this.bump(this.corks);
+      if (prev !== undefined) this.bump(this.cards.corks.value);
     });
     this.set('wine', state.wine, (v, prev) => {
-      this.wine.setText(`🍷 ${v}`);
-      this.wine.setColor(v <= Math.ceil(state.level.startingWine * 0.3) ? css(PALETTE.danger) : css(PALETTE.hudText));
+      const card = this.cards.wine;
+      card.value.setText(`🍺 ${v}`);
+      card.value.setColor(css(v <= Math.ceil(state.level.startingWine * 0.3) ? PALETTE.danger : PALETTE.text));
       dirty = true;
-      if (prev !== undefined && v < prev) this.bump(this.wine);
+      if (prev !== undefined && v < prev) this.bump(card.value);
     });
-    this.set('wave', `Wave ${state.waveIndex}/${state.totalWaves}`, (v) => { this.wave.setText(v); dirty = true; });
-    this.set('preview', state.phase === 'build' ? this.nextWavePreview() : '', (v) => {
-      this.preview.setText(v);
+    this.set('wave', `Wave ${state.waveIndex} / ${state.totalWaves}`, (v) => {
+      this.cards.wave.value.setText(v);
       dirty = true;
     });
+    const previewKey = state.phase === 'build' ? `${state.waveIndex}` : '';
+    this.set('preview', previewKey, () => { this.buildPreview(); dirty = true; });
     if (dirty) this.reflow();
 
     const building = state.phase === 'build';
@@ -108,20 +133,80 @@ export class Hud {
     this.muteButton.setText(sfx && sfx.muted ? '🔇' : '🔊');
   }
 
-  // Lay the stats out left to right with minimum slots (so they don't jitter as numbers
-  // change), then shrink the preview, and if needed the whole row, to end before the buttons.
+  // Lay the cards out left to right with minimum widths (so they don't jitter as numbers
+  // change; widths snap to 8 px so only a few card textures are baked). The preview card is
+  // dropped if it doesn't fit before the buttons; if even the stats don't fit, they shrink.
   reflow() {
-    const gap = 22;
-    const slots = [[this.corks, 110], [this.wine, 72], [this.wave, 96]];
-    let x = this.statsX;
-    for (const [text, min] of slots) {
-      text.x = x;
-      x += Math.max(text.width, min) + gap;
+    for (const c of Object.values(this.cards)) {
+      for (const o of [c.bg, c.value, c.sub]) if (o) { o.baseScale = 1; o.setScale(1); }
     }
-    this.preview.x = x;
-    const room = this.buttonsLeft - 12 - x;
-    this.preview.setScale(this.preview.width > room ? Math.max(room, 0) / this.preview.width : 1);
-    this.preview.setVisible(room >= 40);
+    let x = 14;
+    const order = [['corks', 96], ['wine', 84], ['wave', 120]];
+    for (const [key, min] of order) {
+      const c = this.cards[key];
+      const inner = c.value.width + 6 + c.sub.width;
+      const w = snap(Math.max(min, inner + 28));
+      this.placeCard(c, x, w);
+      x += w + GAP;
+    }
+    const p = this.previewCard;
+    const room = this.buttonsLeft - 6 - x;
+    const fits = p.width > 0 && p.width <= room;
+    if (p.bg) p.bg.setVisible(fits);
+    for (const o of p.objects) {
+      o.setVisible(fits);
+      o.x = o.baseX + x;
+    }
+    if (p.bg) p.bg.x = x + p.width / 2;
+    // Stats alone too wide: squeeze them. Not reachable at the 1280 px minimum width (the
+    // stats need ~450 px, the buttons leave ~750), kept as a guard; bump() respects it.
+    const statsRight = x - GAP;
+    if (statsRight > this.buttonsLeft - 6) {
+      const k = (this.buttonsLeft - 6) / statsRight;
+      for (const c of Object.values(this.cards)) {
+        for (const o of [c.bg, c.value, c.sub]) { o.x *= k; o.baseScale = k; o.setScale(k); }
+      }
+    }
+  }
+
+  placeCard(c, x, w) {
+    if (!c.bg || c.w !== w) {
+      if (c.bg) c.bg.destroy();
+      c.bg = addCard(this.scene, 0, this.mid - 2, w, CARD_H, 'card').setDepth(DEPTH);
+      c.w = w;
+    }
+    c.bg.x = x + w / 2;
+    const inner = c.value.width + 6 + c.sub.width;
+    c.value.x = x + (w - inner) / 2;
+    c.sub.x = c.value.x + c.value.width + 6;
+  }
+
+  // "Next" card: an icon per guest kind of the upcoming wave with its count.
+  buildPreview() {
+    const p = this.previewCard;
+    for (const o of p.objects) o.destroy();
+    if (p.bg) p.bg.destroy();
+    p.objects = [];
+    p.bg = null;
+    p.width = 0;
+    const { state, enemyDefs } = this.scene;
+    if (state.phase !== 'build') return;
+    const wave = state.level.waves[state.waveIndex];
+    if (!wave) return;
+    const counts = new Map();
+    for (const g of wave) counts.set(g.enemyId, (counts.get(g.enemyId) ?? 0) + g.count);
+    const add = (o, bx) => { o.baseX = bx; o.setDepth(DEPTH + 1); p.objects.push(o); return o; };
+    let bx = 12;
+    const head = add(label(this.scene, 0, this.mid - 2, 'Next', { size: 12, color: PALETTE.muted }).setOrigin(0, 0.5), bx);
+    bx += head.width + 8;
+    for (const [id, n] of [...counts].slice(0, MAX_PREVIEW)) {
+      const def = enemyDefs.get(id);
+      add(icon(this.scene, 0, this.mid - 2, def?.sprite, def?.fallbackSprite || '👤', 20), bx + 11);
+      const t = add(label(this.scene, 0, this.mid - 2, `×${n}`, { size: 14, bold: true }).setOrigin(0, 0.5), bx + 23);
+      bx += 23 + t.width + 8;
+    }
+    p.width = snap(bx + 4);
+    p.bg = addCard(this.scene, 0, this.mid - 2, p.width, CARD_H, 'card').setDepth(DEPTH);
   }
 
   set(key, value, apply) {
@@ -133,18 +218,11 @@ export class Hud {
 
   bump(text) {
     this.scene.tweens.killTweensOf(text);
-    text.setScale(1);
-    this.scene.tweens.add({ targets: text, scale: 1.18, duration: 90, yoyo: true });
-  }
-
-  // "next: 6🧑‍💼 3❓" for the upcoming wave.
-  nextWavePreview() {
-    const { state } = this.scene;
-    const wave = state.level.waves[state.waveIndex];
-    if (!wave) return '';
-    const counts = new Map();
-    for (const g of wave) counts.set(g.enemyId, (counts.get(g.enemyId) ?? 0) + g.count);
-    const parts = [...counts].map(([id, n]) => `${n}${this.scene.enemyDefs.get(id)?.sprite ?? '👤'}`);
-    return `next: ${parts.join(' ')}`;
+    const base = text.baseScale ?? 1;
+    text.setScale(base);
+    this.scene.tweens.add({
+      targets: text, scale: base * 1.15, duration: 90, yoyo: true,
+      onComplete: () => text.setScale(base),
+    });
   }
 }

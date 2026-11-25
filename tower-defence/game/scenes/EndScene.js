@@ -1,8 +1,10 @@
 // Win/lose overlay, launched on top of a finished GameScene.
 // Data: { levelId, won, wine, startingWine, corks, wave, totalWaves, kills }
+// (wine = kegs left, corks = bottle caps; internal names.)
 // Keys: R / Enter retry (Enter = next round after a win), Esc levels.
 import { PALETTE } from '../theme.js';
 import { Button, label } from '../ui/widgets.js';
+import { addCard } from '../ui/textures.js';
 import { starsFor, recordStars } from '../progress.js';
 
 export class EndScene extends Phaser.Scene {
@@ -27,37 +29,43 @@ export class EndScene extends Phaser.Scene {
     if (r.won) recordStars(r.levelId, stars);
 
     const dim = this.add.rectangle(0, 0, width, height, PALETTE.overlay, 0).setOrigin(0).setInteractive();
-    this.tweens.add({ targets: dim, fillAlpha: 0.72, duration: 300 });
+    this.tweens.add({ targets: dim, fillAlpha: 0.45, duration: 300 });
 
     const panel = this.add.container(cx, cy);
-    const pw = 520;
+    const pw = 540;
     const ph = 380;
-    const bg = this.add.rectangle(0, 0, pw, ph, PALETTE.hudBar).setStrokeStyle(4, r.won ? PALETTE.accent : PALETTE.danger);
-    const icon = label(this, 0, -ph / 2 + 62, r.won ? '🥂' : '🍷', { size: 64 }).setOrigin(0.5);
-    const title = label(this, 0, -ph / 2 + 132, r.won ? 'The wine is safe!' : 'The wine ran out…', {
-      size: 34, bold: true, color: r.won ? PALETTE.accent : PALETTE.danger,
+    const bg = addCard(this, 0, 0, pw, ph, 'card');
+    const icon = label(this, 0, -ph / 2 + 64, r.won ? '🍻' : '🍺', { size: 64 }).setOrigin(0.5);
+    const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!' : 'The kegs ran dry…', {
+      size: 34, bold: true, color: r.won ? PALETTE.goodText : PALETTE.danger,
     }).setOrigin(0.5);
-    const sub = label(this, 0, -ph / 2 + 172, r.won
-      ? `${level?.name ?? 'Level'} cleared · ${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`
-      : `${level?.name ?? 'Level'} · the guests got through on wave ${r.wave}/${r.totalWaves}`, {
-      size: 18, color: PALETTE.hudText,
+    const sub = label(this, 0, -ph / 2 + 174, r.won
+      ? `${level?.name ?? 'Level'} cleared`
+      : `${level?.name ?? 'Level'} · the guests drained the bar on wave ${r.wave}/${r.totalWaves}`, {
+      size: 17, color: PALETTE.text,
     }).setOrigin(0.5);
-    const stats = label(this, 0, -ph / 2 + 214,
-      `🍷 ${r.wine}/${r.startingWine} left    🍾 ${r.corks} corks    🚪 ${r.kills} guests escorted out`, {
-        size: 16, color: PALETTE.hudMuted,
+    if (sub.width > pw - 40) sub.setScale((pw - 40) / sub.width);
+    const starText = label(this, 0, -ph / 2 + 206, r.won ? `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}` : '', {
+      size: 26, bold: true, color: PALETTE.capsText,
+    }).setOrigin(0.5);
+    const stats = label(this, 0, -ph / 2 + 244,
+      `🍺 ${r.wine}/${r.startingWine} kegs left    🧢 ${r.corks} caps    🚪 ${r.kills} guests escorted out`, {
+        size: 15, color: PALETTE.muted,
       }).setOrigin(0.5);
-    panel.add([bg, icon, title, sub, stats]);
+    if (stats.width > pw - 40) stats.setScale((pw - 40) / stats.width);
+    panel.add([bg, icon, title, sub, starText, stats]);
     panel.setScale(0.7).setAlpha(0);
     this.tweens.add({ targets: panel, scale: 1, alpha: 1, duration: 380, ease: 'Back.easeOut' });
 
-    const by = cy + ph / 2 - 70;
+    const by = cy + ph / 2 - 74;
     const buttons = next
-      ? [['↻ Retry', () => this.retry()], ['☰ Levels', () => this.levels()], ['Next round ▶', () => this.play(next.id)]]
-      : [['↻ Retry', () => this.retry()], ['☰ Levels', () => this.levels()]];
+      ? [['↻ Retry', () => this.retry(), 'ghost'], ['☰ Levels', () => this.levels(), 'ghost'],
+        ['Next round ▶', () => this.play(next.id), 'primary']]
+      : [['↻ Retry', () => this.retry(), r.won ? 'ghost' : 'primary'], ['☰ Levels', () => this.levels(), r.won ? 'primary' : 'ghost']];
     const bw = next ? 150 : 180;
-    buttons.forEach(([text, onClick], i) => {
+    buttons.forEach(([text, onClick, variant], i) => {
       const x = cx + (i - (buttons.length - 1) / 2) * (bw + 16);
-      const b = new Button(this, x, by, bw, 50, text, onClick, { size: 20, depth: 1 });
+      const b = new Button(this, x, by, bw, 46, text, onClick, { size: 18, depth: 1, variant });
       b.bg.setAlpha(0);
       b.text.setAlpha(0);
       this.tweens.add({ targets: [b.bg, b.text], alpha: 1, delay: 250 + i * 80, duration: 200 });
@@ -69,8 +77,8 @@ export class EndScene extends Phaser.Scene {
       kb.on('keydown-ENTER', () => (next ? this.play(next.id) : this.retry()));
       kb.on('keydown-ESC', () => this.levels());
     }
-    label(this, cx, by + 34, `R retry · Esc levels${next ? ' · Enter next round' : ''}`, {
-      size: 12, color: PALETTE.hudMuted,
+    label(this, cx, by + 36, `R retry · Esc levels${next ? ' · Enter next round' : ''}`, {
+      size: 12, color: PALETTE.muted,
     }).setOrigin(0.5, 0);
   }
 

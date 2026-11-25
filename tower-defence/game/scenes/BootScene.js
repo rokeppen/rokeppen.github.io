@@ -38,8 +38,8 @@ export class BootScene extends Phaser.Scene {
     const preview = params.get('preview') === '1';
     const levelId = params.get('level');
 
-    const message = this.add.text(MENU_WIDTH / 2, MENU_HEIGHT / 2, 'Uncorking…', {
-      fontFamily: FONT, fontSize: '32px', color: css(PALETTE.hudText),
+    const message = this.add.text(MENU_WIDTH / 2, MENU_HEIGHT / 2, 'Tapping the keg…', {
+      fontFamily: FONT, fontSize: '32px', color: css(PALETTE.text),
     }).setOrigin(0.5);
 
     const fetchFallback = () => fetch('fallback-data.json').then((r) => {
