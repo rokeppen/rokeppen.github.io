@@ -197,7 +197,7 @@ export class GameState {
       const reward = this.enemyDefs.get(e.enemyId).reward;
       const { x, y } = this.posOf(e);
       this.corks += reward;
-      this.events.push({ type: 'kill', enemyId: e.enemyId, reward, x, y });
+      this.events.push({ type: 'kill', id: e.id, enemyId: e.enemyId, reward, x, y });
       return false;
     });
   }
@@ -207,7 +207,7 @@ export class GameState {
       if (e.distance < this.pathLen) return true;
       const wineDamage = this.enemyDefs.get(e.enemyId).wineDamage;
       this.wine = Math.max(this.wine - wineDamage, 0);
-      this.events.push({ type: 'leak', enemyId: e.enemyId, wineDamage });
+      this.events.push({ type: 'leak', id: e.id, enemyId: e.enemyId, wineDamage });
       return false;
     });
   }

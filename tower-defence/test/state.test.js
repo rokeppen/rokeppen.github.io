@@ -227,3 +227,27 @@ test('slow and splash effects', () => {
   assert.ok(shots.every((sh) => !sh.targetIds.includes(second.id)));
   assert.ok(second.hp < second.maxHp);
 });
+
+test('kill and leak events carry the enemy instance id', () => {
+  const killed = makeState();
+  killed.placeTower(2, 0, 'cannon');
+  killed.startNextWave();
+  run(killed, 10);
+  const killEvents = killed.drainEvents();
+  const killSpawns = killEvents.filter((e) => e.type === 'spawn').map((e) => e.id);
+  const kills = killEvents.filter((e) => e.type === 'kill');
+  assert.equal(kills.length, 2);
+  assert.deepEqual(kills.map((e) => e.id).sort(), killSpawns.sort());
+  assert.equal(kills[0].enemyId, 'guest');
+
+  const leaked = makeState();
+  leaked.startNextWave();
+  run(leaked, 10);
+  const leakEvents = leaked.drainEvents();
+  const leakSpawns = leakEvents.filter((e) => e.type === 'spawn').map((e) => e.id);
+  const leaks = leakEvents.filter((e) => e.type === 'leak');
+  assert.equal(leaks.length, 2);
+  assert.deepEqual(leaks.map((e) => e.id).sort(), leakSpawns.sort());
+  assert.equal(leaks[0].enemyId, 'guest');
+  assert.equal(leaks[0].wineDamage, 3);
+});
