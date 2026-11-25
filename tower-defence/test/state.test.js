@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameState } from '../game/logic/state.js';
+import { GameState, sellRefund } from '../game/logic/state.js';
 
 // 5x3 level: straight path along row 1, one wave of 2 guests.
 function makeLevel(overrides = {}) {
@@ -184,6 +184,18 @@ test('sellTower after one upgrade refunds half of total spent', () => {
   assert.equal(s.corks, 74);
   assert.equal(s.towers.length, 0);
   assert.equal(s.tileType(2, 0), 'buildable');
+});
+
+test('sellRefund is half of spent rounded down and matches sellTower', () => {
+  assert.equal(sellRefund({ spent: 0 }), 0);
+  assert.equal(sellRefund({ spent: 51 }), 25);
+  assert.equal(sellRefund({ spent: 170 }), 85);
+  const s = makeState();
+  s.placeTower(2, 0, 'cannon');
+  const tower = s.towers[0];
+  s.upgradeTower(tower.id);
+  const expected = sellRefund(tower);
+  assert.equal(s.sellTower(tower.id).refund, expected);
 });
 
 test('wave-cleared between waves, then next wave can start', () => {

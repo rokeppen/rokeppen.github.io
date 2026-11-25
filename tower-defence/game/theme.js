@@ -6,6 +6,14 @@ export const TILE = 64;
 // Height of the strip above the board reserved for the HUD (Task 6).
 export const HUD_HEIGHT = 64;
 
+// Width of the side panel right of the board (build menu + tower panel).
+export const SIDE_WIDTH = 256;
+
+// Smallest in-level canvas: keeps the HUD readable and the side panel tall enough for
+// the build menu plus the tower panel. Small boards are centred inside it.
+export const MIN_GAME_WIDTH = 1280;
+export const MIN_GAME_HEIGHT = 720;
+
 // Canvas size outside a level (boot + menu). GameScene resizes to fit its level.
 export const MENU_WIDTH = 1024;
 export const MENU_HEIGHT = 704;
@@ -36,6 +44,7 @@ export const PALETTE = {
   towerBase: 0xfff6e5,
   towerRing: 0xc9932e,
   tierPip: 0xf2c14e,
+  tierPipEdge: 0x5e1724,
   // Enemies
   enemyShadow: 0x000000,
   hpBack: 0x2b1d16,
@@ -44,12 +53,21 @@ export const PALETTE = {
   hpLow: 0xe05a47,
   // Effects
   shot: 0xfff3c4,
+  lure: 0xffa94d,            // pizza orange
+  splash: 0xe9a3c9,          // HR pink
   // HUD
   hudBar: 0x3b2a20,
   hudText: 0xfdf6e3,
   hudMuted: 0xcbb89d,
   accent: 0xf2c14e,          // champagne gold
   danger: 0xe05a47,
+  good: 0x7bd389,
+  // Side panel, buttons, overlays
+  panel: 0x33241b,
+  panelEdge: 0x4d3628,
+  button: 0x4a3426,
+  buttonHover: 0x8e2b3a,
+  overlay: 0x120c09,
 };
 
 export const FONT = '"Segoe UI", system-ui, sans-serif';
@@ -58,4 +76,9 @@ export const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Em
 // 0xRRGGBB -> '#rrggbb' for Phaser Text styles and CSS.
 export function css(color) {
   return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+// 0xRRGGBB -> [r, g, b] (e.g. for camera.flash).
+export function rgb(color) {
+  return [(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff];
 }
