@@ -50,9 +50,16 @@ export function validateLevel(level, catalog) {
     return { level: null, errors: [`${name}: path is invalid`] };
   }
 
-  const guestList = [...levelEnemyIds(level)];
-  if (guestList.length === 0 && Array.isArray(level.enemyIds)) {
-    return { level: null, errors: [`${name}: no guests on the guest list`] };
+  const explicitList = Array.isArray(level.enemyIds);
+  const guestList = [];
+  for (const id of levelEnemyIds(level)) {
+    // Legacy lists derived from waves keep unknown ids; the wave loop reports those.
+    if (explicitList && !enemyIds.has(id)) errors.push(`${name}: unknown guest "${id}" dropped`);
+    else guestList.push(id);
+  }
+  if (guestList.length === 0 && explicitList) {
+    errors.push(`${name}: no guests on the guest list`);
+    return { level: null, errors };
   }
   const guests = new Set(guestList);
 
