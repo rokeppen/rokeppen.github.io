@@ -24,6 +24,7 @@ import { Hud } from '../ui/Hud.js';
 import { BuildMenu } from '../ui/BuildMenu.js';
 import { TowerPanel } from '../ui/TowerPanel.js';
 import { toast, reasonText } from '../ui/widgets.js';
+import { recordBest } from '../progress.js';
 
 const DEPTH = { board: 0, hover: 1, table: 2, towers: 3, enemies: 4, effects: 6, hud: 10 };
 const BLOCKED_SPRITES = ['🪴', '🗄️', '🖨️', '🛋️'];
@@ -375,6 +376,7 @@ export class GameScene extends Phaser.Scene {
       levelId: this.level.id, won, wine: s.wine, startingWine: this.level.startingWine,
       corks: s.corks, wave: s.waveIndex, totalWaves: s.totalWaves, kills: this.kills,
     };
+    recordBest(this.level.id, s.waveIndex, won);
     this.time.delayedCall(END_DELAY_MS, () => this.scene.launch('EndScene', result));
   }
 
@@ -465,6 +467,9 @@ export class GameScene extends Phaser.Scene {
         base.fillCircle(0, 0, 26);
         base.lineStyle(3, PALETTE.towerRing, 1);
         base.strokeCircle(0, 0, 26);
+        // Dark outer edge: the cream disc alone is too close to the oak floor to read at a glance.
+        base.lineStyle(2, PALETTE.towerEdge, 1);
+        base.strokeCircle(0, 0, 28.5);
         const weapon = this.weapons.get(t.weaponId);
         const icon = this.emoji(0, -1, weapon ? weapon.sprite : '❔', 32);
         const pips = this.add.graphics();

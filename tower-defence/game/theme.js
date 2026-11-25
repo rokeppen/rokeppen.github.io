@@ -28,9 +28,10 @@ export const PALETTE = {
   // Path: burgundy carpet runner, strongly contrasting with the oak floor
   path: 0x8e2b3a,
   pathEdge: 0x5e1724,
-  // Blocked tiles: desks, cabinets, plants
-  blocked: 0x5a4636,
-  blockedEdge: 0x3b2c21,
+  // Blocked tiles: desks, cabinets, plants. Cool slate so they differ in hue from the burgundy
+  // path (both are dark; similar luminance), and stay >= 4:1 against the oak floor.
+  blocked: 0x3e4650,
+  blockedEdge: 0x262b31,
   // Placement hover
   buildableHover: 0x7bd389,
   invalidHover: 0xe05a47,
@@ -43,6 +44,7 @@ export const PALETTE = {
   // Towers
   towerBase: 0xfff6e5,
   towerRing: 0xc9932e,
+  towerEdge: 0x5e1724,       // dark outline around the disc, ~6.7:1 against the floor
   tierPip: 0xf2c14e,
   tierPipEdge: 0x5e1724,
   // Enemies
