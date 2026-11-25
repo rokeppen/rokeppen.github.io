@@ -577,3 +577,39 @@ test('events are ordered by round, with bonus first at round -1', () => {
     for (const e of events) assert.equal(typeof e.round, 'number');
   }
 });
+
+// --- review fixes: splash hitIds, slow floor ---
+
+test('splash shot events list every damaged guest in hitIds (targetIds stays the target)', () => {
+  const w = weapon('b', { range: 30, damage: 4, fireRate: 1, effect: 'splash', effectStrength: 1.5 });
+  const s = custom({ weaponList: [w], enemyList: [{ ...guest, hp: 100, speed: 1 }], len: 12,
+    wave: [{ enemyId: 'guest', count: 2, intervalS: 1, delayS: 0 }] });
+  s.placeTower(0, 2, 'b');
+  s.endTurn();
+  const shots = ofType(s.endTurn().events, 'shot');
+  const splashShot = shots.find((e) => e.hitIds.length === 2);
+  assert.ok(splashShot, 'a shot hit both guests');
+  assert.deepEqual(splashShot.targetIds, [1]);
+  assert.deepEqual([...splashShot.hitIds].sort(), [1, 2]);
+});
+
+test('single-target shot events carry hitIds equal to targetIds', () => {
+  const w = weapon('c', { range: 30, damage: 1, fireRate: 1 });
+  const s = custom({ weaponList: [w], enemyList: [{ ...guest, hp: 100 }], wave: one(), len: 12 });
+  s.placeTower(0, 2, 'c');
+  const [shot] = ofType(s.endTurn().events, 'shot');
+  assert.deepEqual(shot.hitIds, shot.targetIds);
+});
+
+test('a full-strength slow cannot pin: effective speed never drops below 0.1', () => {
+  const w = weapon('i', { range: 30, damage: 0, fireRate: 1, effect: 'slow', effectStrength: 1, effectDuration: 100 });
+  const s = custom({ weaponList: [w], enemyList: [{ ...guest, hp: 100, speed: 1 }], wave: one(), len: 30 });
+  s.placeTower(0, 2, 'i');
+  s.endTurn();
+  assert.equal(s.enemies[0].slowFactor, 0);
+  let steps = 0;
+  for (let i = 0; i < 10; i++) steps += stepsOf(s.endTurn().events, 1);
+  assert.equal(steps, 1, '10 turns at 0.1 tiles per turn');
+  s.enemies[0].credit = 0.95;
+  assert.equal(s.previewSteps(s.enemies[0]), 1);
+});

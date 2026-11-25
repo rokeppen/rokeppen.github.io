@@ -5,7 +5,7 @@
       "name": "Out-of-Office Reply",
       "description": "Fires back \"I am currently away\" at anyone between you and the beer bar.",
       "sprite": "📧",
-      "cost": 50,
+      "cost": 200,
       "range": 2.5,
       "damage": 8,
       "fireRate": 1.5,
@@ -14,12 +14,12 @@
       "effectDuration": 0,
       "upgrades": [
         {
-          "cost": 40,
+          "cost": 160,
           "damage": 12,
           "fireRate": 1.8
         },
         {
-          "cost": 80,
+          "cost": 320,
           "damage": 18,
           "range": 3,
           "fireRate": 2.2
@@ -32,7 +32,7 @@
       "name": "Coffee Machine",
       "description": "Guests slow down to queue for a cappuccino at a beer party. Nobody knows which button does what.",
       "sprite": "☕",
-      "cost": 75,
+      "cost": 300,
       "range": 2.5,
       "damage": 2,
       "fireRate": 1,
@@ -41,12 +41,12 @@
       "effectDuration": 2,
       "upgrades": [
         {
-          "cost": 50,
+          "cost": 200,
           "effectStrength": 0.5,
           "range": 3
         },
         {
-          "cost": 90,
+          "cost": 360,
           "effectStrength": 0.6,
           "damage": 5,
           "fireRate": 1.5
@@ -59,7 +59,7 @@
       "name": "Café",
       "description": "A little Belgian pub corner. One guest cannot resist a trappist and sits down for a good long while.",
       "sprite": "🪑",
-      "cost": 100,
+      "cost": 400,
       "range": 3,
       "damage": 3,
       "fireRate": 0.45,
@@ -68,13 +68,13 @@
       "effectDuration": 1.5,
       "upgrades": [
         {
-          "cost": 60,
+          "cost": 240,
           "effectStrength": 0,
           "range": 3.5,
           "fireRate": 0.55
         },
         {
-          "cost": 110,
+          "cost": 440,
           "damage": 8,
           "fireRate": 0.65
         }
@@ -86,7 +86,7 @@
       "name": "Pizza Hut Delivery",
       "description": "Free pizza lures the whole crowd off course. Nobody heads for the beer bar while there is a slice left.",
       "sprite": "🍕",
-      "cost": 120,
+      "cost": 480,
       "range": 2.5,
       "damage": 0,
       "fireRate": 0.25,
@@ -95,12 +95,12 @@
       "effectDuration": 2,
       "upgrades": [
         {
-          "cost": 70,
+          "cost": 280,
           "range": 3,
           "fireRate": 0.3
         },
         {
-          "cost": 120,
+          "cost": 480,
           "range": 3.5,
           "fireRate": 0.4
         }
@@ -112,7 +112,7 @@
       "name": "HR Talk",
       "description": "A mandatory presentation on responsible kegstand conduct. Splash damage to morale.",
       "sprite": "🗣️",
-      "cost": 150,
+      "cost": 600,
       "range": 3,
       "damage": 12,
       "fireRate": 0.6,
@@ -121,12 +121,12 @@
       "effectDuration": 0,
       "upgrades": [
         {
-          "cost": 90,
+          "cost": 360,
           "damage": 18,
           "effectStrength": 1.5
         },
         {
-          "cost": 150,
+          "cost": 600,
           "damage": 26,
           "range": 3.5,
           "fireRate": 0.8,
@@ -142,8 +142,8 @@
       "name": "Recruiter",
       "description": "Has seen your profile and has \"an exciting opportunity\" for you. Mostly interested in the beer bar.",
       "sprite": "🧑‍💼",
-      "hp": 30,
-      "speed": 0.9,
+      "hp": 60,
+      "speed": 1.8,
       "reward": 10,
       "wineDamage": 1,
       "quotes": [
@@ -158,8 +158,8 @@
       "name": "Sales Rep",
       "description": "Just wants five minutes of your time. And your beer.",
       "sprite": "💼",
-      "hp": 60,
-      "speed": 0.7,
+      "hp": 120,
+      "speed": 1.4,
       "reward": 15,
       "wineDamage": 1,
       "quotes": [
@@ -174,8 +174,8 @@
       "name": "Quick Question",
       "description": "It will only take a second. It never does. Mostly asks where the beer is.",
       "sprite": "❓",
-      "hp": 15,
-      "speed": 1.8,
+      "hp": 30,
+      "speed": 3,
       "reward": 8,
       "wineDamage": 1,
       "quotes": [
@@ -190,8 +190,8 @@
       "name": "Facilities Guy",
       "description": "Has a toolbox, a ladder and a legitimate reason to be near the beer bar. Tanky.",
       "sprite": "🧰",
-      "hp": 400,
-      "speed": 0.45,
+      "hp": 800,
+      "speed": 0.9,
       "reward": 60,
       "wineDamage": 5,
       "quotes": [
@@ -206,8 +206,8 @@
       "name": "Wine Snob",
       "description": "Came for the Pinot and found a beer party. Cannot be distracted by anything you pour.",
       "sprite": "🍷",
-      "hp": 120,
-      "speed": 0.6,
+      "hp": 240,
+      "speed": 1.2,
       "reward": 25,
       "wineDamage": 2,
       "quotes": [
@@ -446,7 +446,7 @@
         "coffee-machine",
         "hr-talk"
       ],
-      "startingCorks": 250,
+      "startingCorks": 300,
       "startingWine": 10,
       "waves": [
         [
@@ -813,7 +813,7 @@
         "pizza-hut",
         "hr-talk"
       ],
-      "startingCorks": 250,
+      "startingCorks": 300,
       "startingWine": 8,
       "waves": [
         [
