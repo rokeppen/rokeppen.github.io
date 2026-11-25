@@ -1,5 +1,6 @@
 // Side panel, top part: one white card per weapon in the level with its cost in caps.
-// Unaffordable weapons are faded; the selected one gets a green outline.
+// Unaffordable weapons are faded (all of them while no action is left or the guests are
+// moving); the selected one gets a green outline.
 // Keys: 1-9 pick a weapon, Esc cancels.
 // The menu never takes the space the tower panel needs (TOWER_PANEL_HEIGHT): with many
 // weapons the cards switch to 2-4 compact columns (icon + cost; hover shows the details).
@@ -127,12 +128,16 @@ export class BuildMenu {
 
   pick(weaponId) {
     const { scene } = this;
-    if (scene.state.over) return;
     if (scene.selectedWeaponId === weaponId) {
       scene.selectWeapon(null);
       return;
     }
+    if (scene.refuseAction()) return;
     const weapon = scene.weapons.get(weaponId);
+    if (scene.state.actionsLeft <= 0) {
+      scene.toastReason('no-actions');
+      return;
+    }
     if (scene.state.corks < weapon.cost) {
       scene.toastReason('no-corks');
       return;
@@ -141,18 +146,19 @@ export class BuildMenu {
   }
 
   update() {
-    const { state, selectedWeaponId } = this.scene;
+    const { state, selectedWeaponId, busy } = this.scene;
+    const canAct = !busy && !state.over && state.actionsLeft > 0;
     for (const c of this.cards) {
       const affordable = state.corks >= c.weapon.cost;
       const selected = selectedWeaponId === c.weapon.id;
-      const sig = `${affordable}|${selected}|${c.hover}`;
+      const sig = `${affordable}|${selected}|${c.hover}|${canAct}`;
       if (c.shown === sig) continue;
       c.shown = sig;
       c.outline.setVisible(selected);
-      const lift = (c.hover && affordable) || selected ? -2 : 0;
+      const lift = (c.hover && affordable && canAct) || selected ? -2 : 0;
       for (const o of c.objects) {
         o.y = o.baseY + lift;
-        o.setAlpha(affordable || selected ? 1 : 0.45);
+        o.setAlpha((affordable && canAct) || selected ? 1 : 0.45);
       }
       c.cost.setColor(css(affordable ? c.costColor : PALETTE.danger));
     }

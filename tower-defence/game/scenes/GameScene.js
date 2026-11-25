@@ -1,25 +1,39 @@
 // Renders one level from a GameState. All rules live in ../logic/state.js; this scene
-// only draws the state, forwards input to it and turns its events into effects and sounds.
+// only draws the state, forwards input to it and plays back the events of the guests' turn.
+//
+// Play is turn-based: in the player's turn the scene waits for actions (place, upgrade,
+// sell: 3 per turn) and the free Victory Bell; End turn (button or Space) calls
+// state.endTurn(), which resolves the whole guests' turn at once. Its events are then
+// played back round by round (see ../playback.js): guests tween tile to tile, towers fire
+// after each round of steps. While that runs `busy` is true and every action is refused.
+//
 // The HUD, build menu and tower panel live in ../ui/ and talk to the scene through:
 //   scene.state                      the GameState (read corks, wine, phase, towers, ...)
+//   scene.view                       { corks, wine, wave, turn, actions } as shown: follows the
+//                                    state, except during playback (then event by event)
+//   scene.busy, scene.ended          guests' turn playing back / level finished
+//   scene.fast                       ⏩: playback 3× faster
 //   scene.level, scene.weapons       level definition, Map weaponId -> Weapon
 //   scene.enemyDefs                  Map enemyId -> Enemy
 //   scene.hud                        Hud (capsTarget(), bumpCaps() for flying caps)
 //   scene.layout                     { boardX, boardY, boardWidth, boardHeight, sideX, width, height }
 //                                    in canvas pixels (side panel spans sideX..width, HUD_HEIGHT..height)
+//   scene.endTurn(), scene.ringBell()
+//   scene.refuseAction()             true (with a toast while busy) when no action may be taken now
 //   scene.selectWeapon(id|null)      choose a weapon to place (null cancels)
 //   scene.selectTower(id|null)       choose a placed tower (range shown)
 //   scene.selectedWeaponId / selectedTowerId / hoverWeaponId
 //   scene.toast(text, color?), scene.toastReason(reason)
 //   scene.onTowerUpgraded(tower), scene.onTowerSold(tower, refund), scene.backToMenu()
-//   scene.speed (1|2), scene.sfx (see ../sound.js, may be null)
+//   scene.sfx (see ../sound.js, may be null)
 //   scene.bus                        Phaser EventEmitter, recreated per level run:
-//     'state-event' (ev)             every event from state.drainEvents(), once
+//     'state-event' (ev)             every engine event, once, when it is played back
+//     'playback-done' (turn)         the guests' turn finished playing; input is back
 //     'tile-click' ({x, y, type, towerId, result})   result = placeTower result when placing
 //     'weapon-selected' (id|null), 'tower-selected' (id|null)
 import { GameState } from '../logic/state.js';
-import { positionAt } from '../logic/path.js';
 import { weaponStats } from '../logic/stats.js';
+import { planPlayback, scaleMs, STEP_MS, SETTLE_MS } from '../playback.js';
 import {
   PALETTE, TILE, HUD_HEIGHT, SIDE_WIDTH, MIN_GAME_WIDTH, MIN_GAME_HEIGHT, BOARD_PAD, BOARD_EDGE,
   FONT, EMOJI_FONT, css, rgb,
@@ -44,6 +58,8 @@ const BUBBLE_MS = 2500;    // a quote bubble stays this long (or until its guest
 const MAX_BUBBLES = 3;
 const MAX_FLYING_CAPS = 6;
 const SQUASH_MS = 60;      // half of the 120 ms squash when a tower fires
+// Guests sharing a tile stand a little apart (pixels), by spawn order.
+const SHARE_OFFSETS = [[-9, -5], [9, 5], [9, -6], [-9, 6], [0, -9], [0, 9]];
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -77,14 +93,17 @@ export class GameScene extends Phaser.Scene {
     this.selectedTowerId = null;
     this.hoverWeaponId = null;
     this.hoverTile = null;
-    this.speed = 1;
+    this.fast = false;
+    this.busy = false;
+    this.view = {};
+    this.syncView();
     this.kills = 0;
     this.ended = false;
     this.toastObj = null;
     this.bubbles = new Map();      // enemy instance id -> { container, until }
     this.flyingCaps = 0;
     this.towerSprites = new Map(); // tower id -> { container, icon, pips, tier, punching }
-    this.enemySprites = new Map(); // enemy instance id -> { container, icon, hpBar, status, ... }
+    this.enemySprites = new Map(); // enemy instance id -> sprite record, see addEnemySprite
     this.stallSource = new Map();  // enemy instance id -> { effect, x, y } of the last distract/lure
     this.shots = [];
 
@@ -116,19 +135,28 @@ export class GameScene extends Phaser.Scene {
     this.towerPanel = new TowerPanel(this, this.buildMenu.bottom);
   }
 
+  // No simulation here: the state only changes on actions and End turn. Frames animate.
   update(_time, delta) {
     if (!this.state) return;
-    // GameState caps each tick, so a long frame (tab switched away) can't skip towers.
-    this.state.tick((delta / 1000) * this.speed);
-    this.consumeEvents();
+    if (!this.busy) this.syncView();
     this.syncTowers();
-    this.syncEnemies();
+    this.animateEnemies();
     this.updateBubbles();
     this.drawHover();
     this.drawEffects(delta / 1000);
     this.hud.update();
     this.buildMenu.update();
     this.towerPanel.update();
+  }
+
+  syncView() {
+    const s = this.state;
+    const v = this.view;
+    v.corks = s.corks;
+    v.wine = s.wine;
+    v.wave = s.waveIndex;
+    v.turn = s.turn;
+    v.actions = s.over ? 0 : s.actionsLeft;
   }
 
   // --- layout & coordinates ---
@@ -163,6 +191,13 @@ export class GameScene extends Phaser.Scene {
     return this.toPixels(x + 0.5, y + 0.5);
   }
 
+  // Centre of the path tile a guest stands on.
+  pathCentre(index) {
+    const path = this.level.path;
+    const p = path[Math.max(0, Math.min(index, path.length - 1))];
+    return this.tileCentre(p.x, p.y);
+  }
+
   tileAt(px, py) {
     const x = Math.floor((px - this.layout.boardX) / TILE);
     const y = Math.floor((py - this.layout.boardY) / TILE);
@@ -184,6 +219,16 @@ export class GameScene extends Phaser.Scene {
     this.bus.emit('tower-selected', this.selectedTowerId);
   }
 
+  // True when no action may be taken now. During the guests' turn it says why.
+  refuseAction() {
+    if (this.ended || this.state.over) return true;
+    if (this.busy) {
+      this.toastReason('guests-moving');
+      return true;
+    }
+    return false;
+  }
+
   onTileClick(x, y) {
     if (this.state.over) return;
     const type = this.state.tileType(x, y);
@@ -193,6 +238,7 @@ export class GameScene extends Phaser.Scene {
       // Clicking an existing tower while placing opens that tower instead of complaining.
       this.selectTower(tower.id);
     } else if (this.selectedWeaponId) {
+      if (this.refuseAction()) return;
       const weaponId = this.selectedWeaponId;
       result = this.state.placeTower(x, y, weaponId);
       if (result.ok) {
@@ -202,9 +248,43 @@ export class GameScene extends Phaser.Scene {
         this.toastReason(result.reason);
       }
     } else {
+      // Looking at a tower is not an action: allowed while the guests move.
       this.selectTower(tower ? tower.id : null);
     }
     this.bus.emit('tile-click', { x, y, type, towerId: tower ? tower.id : null, result });
+  }
+
+  // Ends the player's turn and plays back the guests' turn.
+  endTurn() {
+    if (this.ended || this.state.over) return;
+    if (this.busy) {
+      this.toastReason('guests-moving');
+      return;
+    }
+    const result = this.state.endTurn();
+    if (!result.ok) {
+      this.toastReason(result.reason);
+      return;
+    }
+    this.selectWeapon(null);
+    this.runPlayback(result.events);
+  }
+
+  // The Nexios Victory Bell: free (not an action), once per level.
+  ringBell() {
+    if (this.refuseAction()) return;
+    const { state } = this;
+    if (!state.bellUsed && state.enemies.length === 0) {
+      // Don't waste the once-per-level bell on an empty office.
+      this.toast('No guests to ring out yet');
+      return;
+    }
+    const result = state.ringBell();
+    if (!result.ok) {
+      this.toastReason(result.reason);
+      return;
+    }
+    for (const ev of result.events) this.playEvent(ev);
   }
 
   toast(text, color = PALETTE.text) {
@@ -270,22 +350,83 @@ export class GameScene extends Phaser.Scene {
     this.input.on('gameout', () => { this.hoverTile = null; });
   }
 
-  // --- events (the single consumer of state.drainEvents) ---
+  // --- guests' turn playback ---
 
-  consumeEvents() {
-    for (const ev of this.state.drainEvents()) {
-      this.renderEvent(ev);
-      this.bus.emit('state-event', ev);
-    }
+  // Plays the beats one after another; each beat's wait is read when it starts, so ⏩
+  // takes effect mid-turn. A short settle at the end lets the last shots and floats land.
+  runPlayback(events) {
+    this.busy = true;
+    this.view.actions = 0;
+    for (const s of this.enemySprites.values()) s.badge.setVisible(false);
+    const beats = planPlayback(events);
+    let i = 0;
+    const next = () => {
+      if (!this.state) return;
+      if (i > beats.length) {
+        this.finishPlayback();
+        return;
+      }
+      if (i === beats.length) {
+        i += 1;
+        this.time.delayedCall(scaleMs(SETTLE_MS, this.fast), next);
+        return;
+      }
+      const beat = beats[i++];
+      for (const ev of beat.events) this.playEvent(ev);
+      this.time.delayedCall(scaleMs(beat.ms, this.fast), next);
+    };
+    next();
+  }
+
+  // Back to the player: the sprites match the state exactly, previews are refreshed.
+  finishPlayback() {
+    this.busy = false;
+    this.syncView();
+    this.reconcileEnemies();
+    this.bus.emit('playback-done', this.state.turn);
+  }
+
+  playEvent(ev) {
+    this.renderEvent(ev);
+    this.bus.emit('state-event', ev);
   }
 
   renderEvent(ev) {
     switch (ev.type) {
+      case 'bonus': {
+        this.view.corks += ev.caps;
+        const at = this.hud.capsTarget();
+        this.floatText(Math.max(at.x, 60), HUD_HEIGHT + 16, `+${ev.caps} 🧢`, PALETTE.capsText, DEPTH.hud + 2);
+        this.hud.bumpCaps();
+        this.play('cork');
+        break;
+      }
+      case 'wave-start':
+        this.view.wave = ev.wave;
+        this.toast(`Wave ${ev.wave} incoming! 🚪`, PALETTE.text);
+        break;
+      case 'spawn':
+        this.addEnemySprite(ev.id, ev.enemyId, ev.pathIndex ?? 0, true);
+        break;
+      case 'step':
+        this.stepEnemy(ev);
+        break;
       case 'shot':
         this.renderShot(ev);
         break;
+      case 'effect': {
+        const s = this.enemySprites.get(ev.id);
+        if (s && ev.kind === 'stall') {
+          s.stalled = true;
+          s.walking = false;
+        } else if (s && ev.kind === 'slow') {
+          s.slowed = true;
+        }
+        break;
+      }
       case 'kill': {
         this.kills += 1;
+        this.view.corks += ev.reward;
         const at = this.toPixels(ev.x, ev.y);
         this.removeEnemySprite(ev.id, true);
         this.floatText(at.x, at.y - 24, `+${ev.reward} 🧢`, PALETTE.capsText);
@@ -293,19 +434,14 @@ export class GameScene extends Phaser.Scene {
         this.play('cork');
         break;
       }
-      case 'leak': {
-        this.removeEnemySprite(ev.id, false);
-        const at = this.tileCentre(this.level.end.x, this.level.end.y);
-        this.floatText(at.x, at.y - 30, `-${ev.wineDamage} 🍺`, PALETTE.danger);
-        this.cameras.main.shake(150, 0.004);
-        this.play('leak');
+      case 'leak':
+        this.renderLeak(ev);
         break;
-      }
       case 'bell':
         this.renderBell(ev);
         break;
       case 'wave-cleared':
-        this.toast(`Wave ${this.state.waveIndex} cleared! 🍻`, PALETTE.goodText);
+        this.toast(`Wave ${ev.wave} cleared! 🍻`, PALETTE.goodText);
         break;
       case 'quote':
         this.showQuote(ev);
@@ -319,10 +455,39 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  stepEnemy(ev) {
+    const s = this.enemySprites.get(ev.id);
+    if (!s) return;
+    const from = this.pathCentre(ev.from);
+    const to = this.pathCentre(ev.to);
+    this.tweens.killTweensOf(s.pos);
+    s.pos.x = from.x;
+    s.pos.y = from.y;
+    s.index = ev.to;
+    s.walking = true;
+    this.tweens.add({
+      targets: s.pos, x: to.x, y: to.y, duration: Math.max(1, scaleMs(STEP_MS, this.fast)), ease: 'Sine.easeInOut',
+      onComplete: () => { s.walking = false; },
+    });
+  }
+
+  // The guest finishes its step onto the bar, then drains the kegs and leaves.
+  renderLeak(ev) {
+    this.time.delayedCall(scaleMs(STEP_MS, this.fast), () => {
+      this.view.wine = Math.max(0, this.view.wine - ev.wineDamage);
+      this.removeEnemySprite(ev.id, false);
+      const at = this.tileCentre(this.level.end.x, this.level.end.y);
+      this.floatText(at.x, at.y - 30, `-${ev.wineDamage} 🍺`, PALETTE.danger);
+      this.cameras.main.shake(150, 0.004);
+      this.play('leak');
+    });
+  }
+
   renderShot(ev) {
     const tower = this.state.towers.find((t) => t.id === ev.towerId);
     if (!tower) return;
     const weapon = this.weapons.get(tower.weaponId);
+    const stats = weaponStats(weapon, tower.tier);
     const from = this.tileCentre(tower.x, tower.y);
     from.y -= PIECES.tower.lift;
     const to = this.toPixels(ev.x, ev.y);
@@ -332,23 +497,22 @@ export class GameScene extends Phaser.Scene {
       // Pizza smell reaches everyone in range; remember where to lean.
       for (const id of ev.targetIds) {
         this.stallSource.set(id, { effect, x: tower.x + 0.5, y: tower.y + 0.5 });
-        const e = this.state.enemies.find((en) => en.id === id);
-        if (!e) continue;
-        const p = positionAt(this.level.path, e.distance);
-        const px = this.toPixels(p.x, p.y);
-        this.shots.push({ kind: 'line', x1: from.x, y1: from.y, x2: px.x, y2: px.y, ttl: SHOT_TTL * 2, max: SHOT_TTL * 2, color: PALETTE.lure });
+        const s = this.enemySprites.get(id);
+        if (!s) continue;
+        this.shots.push({ kind: 'line', x1: from.x, y1: from.y, x2: s.pos.x, y2: s.pos.y, ttl: SHOT_TTL * 2, max: SHOT_TTL * 2, color: PALETTE.lure });
       }
-      this.shots.push({ kind: 'ring', x: from.x, y: from.y, r: weaponStats(weapon, tower.tier).range * TILE, ttl: RING_TTL, max: RING_TTL, color: PALETTE.lure });
+      this.shots.push({ kind: 'ring', x: from.x, y: from.y, r: stats.range * TILE, ttl: RING_TTL, max: RING_TTL, color: PALETTE.lure });
     } else {
       if (effect === 'distract') {
         for (const id of ev.targetIds) this.stallSource.set(id, { effect, x: tower.x + 0.5, y: tower.y + 0.5 });
       }
       this.shots.push({ kind: 'line', x1: from.x, y1: from.y, x2: to.x, y2: to.y, ttl: SHOT_TTL, max: SHOT_TTL, color: PALETTE.shot });
       if (effect === 'splash') {
-        const r = weaponStats(weapon, tower.tier).effectStrength * TILE;
+        const r = stats.effectStrength * TILE;
         this.shots.push({ kind: 'ring', x: to.x, y: to.y, r, ttl: RING_TTL, max: RING_TTL, color: PALETTE.splash });
       }
     }
+    this.applyShotDamage(ev, effect, stats);
 
     // Squash: wider and flatter for 120 ms, anchored at the tower's foot.
     const s = this.towerSprites.get(tower.id);
@@ -362,6 +526,28 @@ export class GameScene extends Phaser.Scene {
     this.play('shot');
   }
 
+  // HP bars during playback (events carry no damage): the same rule as the engine, splash
+  // hits every guest within effectStrength tiles of the target. The state is authoritative
+  // again once the playback ends.
+  applyShotDamage(ev, effect, stats) {
+    if (!(stats.damage > 0)) return;
+    let ids = ev.targetIds;
+    if (effect === 'splash') {
+      ids = [];
+      const path = this.level.path;
+      for (const [id, s] of this.enemySprites) {
+        const p = path[Math.min(s.index, path.length - 1)];
+        if (Math.hypot(p.x + 0.5 - ev.x, p.y + 0.5 - ev.y) <= stats.effectStrength + 1e-9) ids.push(id);
+      }
+    }
+    for (const id of ids) {
+      const s = this.enemySprites.get(id);
+      if (!s) continue;
+      s.hp = Math.max(0, s.hp - stats.damage);
+      this.drawHpBar(s, s.hp / s.maxHp);
+    }
+  }
+
   // The Nexios Victory Bell: everyone on the floor is walked out and pays up.
   renderBell(ev) {
     const cam = this.cameras.main;
@@ -369,6 +555,7 @@ export class GameScene extends Phaser.Scene {
     cam.flash(500, ...rgb(PALETTE.gold));
     this.play('bell');
     this.kills += ev.count;
+    this.view.corks += ev.reward;
 
     let i = 0;
     for (const [id, s] of [...this.enemySprites]) {
@@ -382,6 +569,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.enemySprites.delete(id);
       this.stallSource.delete(id);
+      this.tweens.killTweensOf(s.pos);
       this.tweens.add({
         targets: s.container, scale: 1.6, alpha: 0, angle: 25, delay, duration: 260,
         onComplete: () => s.container.destroy(),
@@ -423,7 +611,8 @@ export class GameScene extends Phaser.Scene {
     const s = this.state;
     const result = {
       levelId: this.level.id, won, wine: s.wine, startingWine: this.level.startingWine,
-      corks: s.corks, wave: s.waveIndex, totalWaves: s.totalWaves, kills: this.kills,
+      corks: s.corks, wave: s.waveIndex, totalWaves: s.totalWaves, kills: this.kills, turns: s.turn,
+      reason: s.endReason,
     };
     recordBest(this.level.id, s.waveIndex, won);
     this.time.delayedCall(END_DELAY_MS, () => this.scene.launch('EndScene', result));
@@ -513,60 +702,115 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedTowerId !== null && !alive.has(this.selectedTowerId)) this.selectTower(null);
   }
 
-  syncEnemies() {
+  // A guest piece with its icon, HP bar, status emoji and the "→n" preview badge. Its
+  // logical position `pos` (pixels, tweened tile to tile) is separate from the container,
+  // which animateEnemies() places with the bob and the shared-tile offset.
+  addEnemySprite(id, enemyId, index, popIn) {
+    if (this.enemySprites.has(id)) return this.enemySprites.get(id);
+    const def = this.enemyDefs.get(enemyId);
+    const faceY = -PIECES.guest.lift;
+    const base = addPiece(this, 'guest', 0, 0);
+    const ic = icon(this, 0, faceY, def?.sprite, def?.fallbackSprite || '👤', 24);
+    const hpY = faceY - PIECES.guest.h / 2 - 8;
+    const hpBack = this.add.image(0, hpY, TEX.hpBack);
+    const hpFill = this.add.image(-(HP_W + 2) / 2, hpY, TEX.hpHigh).setOrigin(0, 0.5);
+    const status = this.emoji(17, faceY - 15, '', 16);
+    const badge = label(this, 16, 14, '', {
+      size: 12, bold: true, color: PALETTE.text, stroke: css(PALETTE.white), strokeThickness: 4,
+    }).setOrigin(0.5).setVisible(false);
+    const pos = this.pathCentre(index);
+    const container = this.add.container(pos.x, pos.y, [base, ic, hpBack, hpFill, status, badge]);
+    const hp = def ? def.hp : 1;
+    const s = {
+      container, icon: ic, hpFill, hpTex: TEX.hpHigh, status, badge, faceY, reward: def ? def.reward : 0,
+      pos, index, ox: 0, oy: 0, hp, maxHp: hp, walking: false, stalled: false, slowed: false,
+      lastStatus: null, depth: null, phase: (id * 1.7) % (Math.PI * 2),
+    };
+    this.enemySprites.set(id, s);
+    if (popIn) {
+      container.setScale(0.3);
+      this.tweens.add({ targets: container, scale: 1, duration: 160, ease: 'Back.easeOut' });
+    }
+    return s;
+  }
+
+  // After playback: sprites, HP, statuses and previews follow the state exactly.
+  reconcileEnemies() {
     const alive = new Set();
-    const now = this.state.time;
     for (const e of this.state.enemies) {
       alive.add(e.id);
-      let s = this.enemySprites.get(e.id);
-      if (!s) {
-        const def = this.enemyDefs.get(e.enemyId);
-        const faceY = -PIECES.guest.lift;
-        const base = addPiece(this, 'guest', 0, 0);
-        const ic = icon(this, 0, faceY, def?.sprite, def?.fallbackSprite || '👤', 24);
-        const hpY = faceY - PIECES.guest.h / 2 - 8;
-        const hpBack = this.add.image(0, hpY, TEX.hpBack);
-        const hpFill = this.add.image(-(HP_W + 2) / 2, hpY, TEX.hpHigh).setOrigin(0, 0.5);
-        const status = this.emoji(17, faceY - 15, '', 16);
-        const container = this.add.container(0, 0, [base, ic, hpBack, hpFill, status]);
-        s = { container, icon: ic, hpFill, hpTex: TEX.hpHigh, status, faceY, reward: def ? def.reward : 0,
-          lastHp: null, lastStatus: null, depth: null, phase: (e.id * 1.7) % (Math.PI * 2) };
-        this.enemySprites.set(e.id, s);
-      }
-      const pos = positionAt(this.level.path, e.distance);
-      const px = this.toPixels(pos.x, pos.y);
+      const s = this.addEnemySprite(e.id, e.enemyId, e.pathIndex, false);
+      this.tweens.killTweensOf(s.pos);
+      const at = this.pathCentre(e.pathIndex);
+      s.pos.x = at.x;
+      s.pos.y = at.y;
+      s.index = e.pathIndex;
+      s.walking = false;
+      s.hp = e.hp;
+      s.maxHp = e.maxHp;
+      this.drawHpBar(s, e.hp / e.maxHp);
+      s.stalled = e.stalledTurns > 0;
+      s.slowed = e.slowTurns > 0 && e.slowFactor < 1;
+      if (!s.stalled) this.stallSource.delete(e.id);
+      s.badge.setText(`→${this.state.previewSteps(e)}`).setVisible(!this.state.over);
+    }
+    for (const id of [...this.enemySprites.keys()]) {
+      if (!alive.has(id)) this.removeEnemySprite(id, false);
+    }
+  }
 
-      const stalled = now < e.stallUntil;
-      // Bob while walking (a little hop every step); stand still while stalled.
-      const bob = stalled ? 0 : -Math.abs(Math.sin(now * 9 + s.phase)) * 3;
-      s.container.setPosition(px.x, px.y + bob);
+  // Per frame: place each guest (tile position + shared-tile offset + bob while stepping),
+  // depth by screen y, and the stalled wobble / pizza lean / slow snail.
+  animateEnemies() {
+    if (this.enemySprites.size === 0) return;
+    const now = this.time.now / 1000;
+    const path = this.level.path;
+    // Guests on the same tile, in spawn (id) order.
+    const groups = new Map();
+    for (const [id, s] of this.enemySprites) {
+      const p = path[Math.min(s.index, path.length - 1)];
+      const k = `${p.x},${p.y}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(id);
+    }
+    const slot = new Map();
+    for (const ids of groups.values()) {
+      ids.sort((a, b) => a - b);
+      ids.forEach((id, i) => slot.set(id, ids.length > 1 ? SHARE_OFFSETS[i % SHARE_OFFSETS.length] : [0, 0]));
+    }
+    for (const [id, s] of this.enemySprites) {
+      const [tx, ty] = slot.get(id);
+      s.ox += (tx - s.ox) * 0.3;
+      s.oy += (ty - s.oy) * 0.3;
+      // A little hop while stepping; still otherwise.
+      const bob = s.walking ? -Math.abs(Math.sin(now * 26 + s.phase)) * 4 : 0;
+      const px = s.pos.x + s.ox;
+      const py = s.pos.y + s.oy;
+      s.container.setPosition(px, py + bob);
       // Lower on screen draws in front; only touch depth when it changes.
-      const depth = DEPTH.enemies + Math.round(px.y) / 10000;
+      const depth = DEPTH.enemies + Math.round(py) / 10000;
       if (s.depth !== depth) {
         s.depth = depth;
         s.container.setDepth(depth);
       }
-      if (s.lastHp !== e.hp) {
-        s.lastHp = e.hp;
-        this.drawHpBar(s, e.hp / e.maxHp);
-      }
 
-      const source = stalled ? this.stallSource.get(e.id) : null;
+      const source = s.stalled ? this.stallSource.get(id) : null;
       let status = '';
       let rotation = 0;
       let ox = 0;
       let oy = 0;
       if (source && source.effect === 'lure') {
-        // Leaning hungrily toward the pizza, without leaving the path.
-        const angle = Math.atan2(source.y - pos.y, source.x - pos.x);
+        // Leaning hungrily toward the pizza, without leaving the tile.
+        const p = path[Math.min(s.index, path.length - 1)];
+        const angle = Math.atan2(source.y - (p.y + 0.5), source.x - (p.x + 0.5));
         ox = Math.cos(angle) * 6;
         oy = Math.sin(angle) * 4;
         rotation = Math.cos(angle) * 0.35 + Math.sin(now * 14) * 0.05;
         status = '🍕';
-      } else if (stalled) {
-        rotation = Math.sin(now * 9 + e.id) * 0.2; // happy wobble at the Café
+      } else if (s.stalled) {
+        rotation = Math.sin(now * 9 + id) * 0.2; // happy wobble at the Café
         status = CAFE_STATUS;
-      } else if (now < e.slowUntil && e.slowFactor < 1) {
+      } else if (s.slowed) {
         status = '🐌';
       }
       s.icon.setRotation(rotation).setPosition(ox, s.faceY + oy);
@@ -574,9 +818,6 @@ export class GameScene extends Phaser.Scene {
         s.lastStatus = status;
         s.status.setText(status);
       }
-    }
-    for (const id of [...this.enemySprites.keys()]) {
-      if (!alive.has(id)) this.removeEnemySprite(id, false);
     }
   }
 
@@ -596,7 +837,7 @@ export class GameScene extends Phaser.Scene {
   // A white rounded bubble with a tail above the guest. One per guest (a new line replaces
   // the old), at most MAX_BUBBLES on screen (extra quotes are skipped), BUBBLE_MS each.
   showQuote(ev) {
-    if (!ev.text || !this.state.enemies.some((e) => e.id === ev.id)) return;
+    if (!ev.text || !this.enemySprites.has(ev.id)) return;
     const existing = this.bubbles.get(ev.id);
     if (existing) {
       this.tweens.killTweensOf(existing.container);
@@ -624,14 +865,12 @@ export class GameScene extends Phaser.Scene {
     const { boardX, boardWidth } = this.layout;
     for (const [id, b] of this.bubbles) {
       const s = this.enemySprites.get(id);
-      const guestAlive = s || this.state.enemies.some((e) => e.id === id);
-      if (!guestAlive || now >= b.until) {
+      if (!s || now >= b.until) {
         this.tweens.killTweensOf(b.container);
         b.container.destroy();
         this.bubbles.delete(id);
         continue;
       }
-      if (!s) continue; // spawned this frame; its sprite appears on the next sync
       // Tail tip just above the HP bar; keep the bubble over the board horizontally and below
       // the HUD vertically (the container's y is the bubble's bottom edge).
       const half = b.width / 2;
@@ -646,10 +885,12 @@ export class GameScene extends Phaser.Scene {
     const s = this.enemySprites.get(id);
     if (!s) return;
     this.enemySprites.delete(id);
+    this.tweens.killTweensOf(s.pos);
     if (!pop) {
       s.container.destroy();
       return;
     }
+    s.badge.setVisible(false);
     this.tweens.add({
       targets: s.container, scale: 1.4, alpha: 0, duration: 180,
       onComplete: () => s.container.destroy(),
@@ -706,12 +947,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  floatText(x, y, text, color = PALETTE.capsText) {
+  floatText(x, y, text, color = PALETTE.capsText, depth = DEPTH.effects) {
     const t = this.add.text(x, y, text, {
       fontFamily: `${FONT}, ${EMOJI_FONT}`, fontSize: '18px', fontStyle: 'bold',
       color: css(color), stroke: css(PALETTE.white), strokeThickness: 4,
       padding: { x: 2, y: 4 },
-    }).setOrigin(0.5).setDepth(DEPTH.effects);
+    }).setOrigin(0.5).setDepth(depth);
     this.tweens.add({
       targets: t, y: y - 36, alpha: 0, duration: 900, ease: 'Cubic.easeOut',
       onComplete: () => t.destroy(),
