@@ -157,11 +157,23 @@ function supportTile(state, support) {
   return null;
 }
 
+// Which support effect backs which damage tower (from the balance probes): a slow pulls the
+// leader out of a pack and costs splash its crowd, so splash wants a single-guest stall
+// (Café); a single-target tower is fire-rate-bound and gains most from a crowd stall (Pizza Hut).
+const SUPPORT_FOR = { splash: 'distract', none: 'lure' };
+
+export function pickSupport(weapons, damage) {
+  const supports = weapons.filter(isSupport);
+  const wanted = damage && SUPPORT_FOR[damage.effect];
+  const preferred = supports.filter((w) => w.effect === wanted);
+  return best(preferred.length > 0 ? preferred : supports, supportScore);
+}
+
 export function playMixed(state, { only } = {}) {
   while (state.actionsLeft > 0 && !state.over) {
     const weapons = levelWeapons(state, only);
     const damage = best(weapons.filter((w) => !isSupport(w) && w.damage > 0), damageScore);
-    const support = best(weapons.filter(isSupport), supportScore);
+    const support = pickSupport(weapons, damage);
     const count = (pred) => state.towers.filter((t) => pred(state.weaponDefs.get(t.weaponId))).length;
     const supports = count(isSupport);
     const damages = state.towers.length - supports;

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { prepareGameData } from '../shared/model.js';
-import { runGame, playSensibly, playMixed, weaponScore, pathCoverage, supportTileFor } from '../game/logic/bot.js';
+import { runGame, playSensibly, playMixed, pickSupport, weaponScore, pathCoverage, supportTileFor } from '../game/logic/bot.js';
 import { GameState } from '../game/logic/state.js';
 
 const raw = JSON.parse(readFileSync(new URL('../fallback-data.json', import.meta.url), 'utf8'));
@@ -105,15 +105,23 @@ function damageDealt(level, placements, { dropFirst = false } = {}) {
   return dealt;
 }
 
-test('the mixed bot (damage + support) keeps more kegs on level 2 than the Out-of-Office-only bot', () => {
+test('on level 2 the mixed bot beats the best single-weapon bot (HR Talk only)', () => {
   for (const seed of SEEDS) {
-    const plain = runGame(level2, catalog, { rng: lcg(seed) });
+    const single = runGame(level2, catalog, { only: ['hr-talk'], rng: lcg(seed) });
     const mixed = runGame(level2, catalog, { bot: 'mixed', rng: lcg(seed) });
     assert.equal(mixed.phase, 'won', JSON.stringify(mixed));
     assert.ok(Object.keys(mixed.towers).length >= 2, `mixed builds a mix: ${JSON.stringify(mixed.towers)}`);
-    assert.ok(mixed.wine > plain.wine || (mixed.wine === plain.wine && mixed.turn < plain.turn),
-      `mixed ${JSON.stringify(mixed)} vs plain ${JSON.stringify(plain)}`);
+    assert.ok(mixed.wine > single.wine || (mixed.wine === single.wine && mixed.turn < single.turn),
+      `mixed ${JSON.stringify(mixed)} vs HR only ${JSON.stringify(single)}`);
   }
+});
+
+test('the mixed bot backs splash with the Café and single-target towers with Pizza Hut', () => {
+  const ws = (...ids) => ids.map((id) => catalog.weapons.find((w) => w.id === id));
+  const all = ws('out-of-office', 'coffee-machine', 'cafe', 'pizza-hut', 'hr-talk');
+  assert.equal(pickSupport(all, ws('hr-talk')[0]).id, 'cafe');
+  assert.equal(pickSupport(all, ws('out-of-office')[0]).id, 'pizza-hut');
+  assert.equal(pickSupport(ws('hr-talk', 'coffee-machine'), ws('hr-talk')[0]).id, 'coffee-machine', 'falls back');
 });
 
 test('HR Talk alone wins level 1 within its turn target', () => {

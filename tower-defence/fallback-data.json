@@ -112,7 +112,7 @@
       "description": "A mandatory presentation on responsible kegstand conduct. Splash damage to morale.",
       "sprite": "🗣️",
       "cost": 200,
-      "range": 3,
+      "range": 2.5,
       "damage": 14,
       "fireRate": 0.6,
       "effect": "splash",
