@@ -75,6 +75,34 @@ test('validateLevel drops groups with count < 1 and waves left empty', () => {
   assert.ok(errors.length >= 1);
 });
 
+test('validateLevel drops groups with a non-integer/non-finite count, bad interval or bad delay', () => {
+  const bad = [
+    { count: 1.5 }, { count: Infinity }, { count: '3' }, { count: NaN },
+    { intervalS: 0 }, { intervalS: -1 }, { intervalS: Infinity }, { intervalS: undefined },
+    { delayS: -1 }, { delayS: NaN }, { delayS: Infinity }, { delayS: null },
+  ];
+  for (const patch of bad) {
+    const g = { enemyId: 'e', count: 2, intervalS: 1, delayS: 0, ...patch };
+    const level = makeLevel({ waves: [[g], [{ enemyId: 'e', count: 3, intervalS: 0.5, delayS: 2 }]] });
+    const { level: out, errors } = validateLevel(level, catalog);
+    assert.equal(out.waves.length, 1, JSON.stringify(patch));
+    assert.equal(out.waves[0][0].count, 3);
+    assert.ok(errors.some(e => e.includes('group dropped')), `${JSON.stringify(patch)}: ${errors.join('; ')}`);
+  }
+});
+
+test('validateLevel treats bad starting wine or corks as fatal', () => {
+  for (const patch of [
+    { startingWine: 0 }, { startingWine: -3 }, { startingWine: NaN }, { startingWine: Infinity }, { startingWine: undefined },
+    { startingCorks: -1 }, { startingCorks: NaN }, { startingCorks: Infinity }, { startingCorks: '100' },
+  ]) {
+    const { level: out, errors } = validateLevel(makeLevel(patch), catalog);
+    assert.equal(out, null, JSON.stringify(patch));
+    assert.ok(errors.some(e => /starting (wine|corks)/.test(e)), `${JSON.stringify(patch)}: ${errors.join('; ')}`);
+  }
+  assert.ok(validateLevel(makeLevel({ startingCorks: 0, startingWine: 1 }), catalog).level);
+});
+
 test('validateLevel returns null for a broken path, no weapons, or no waves', () => {
   const broken = validateLevel(makeLevel({ path: [{x:0,y:0},{x:2,y:0}] }), catalog);
   assert.equal(broken.level, null);

@@ -263,3 +263,26 @@ test('kill and leak events carry the enemy instance id', () => {
   assert.equal(leaks[0].enemyId, 'guest');
   assert.equal(leaks[0].wineDamage, 3);
 });
+
+// Regression: re-stalling on every shot pinned a guest forever when fireRate x effectDuration >= 1.
+for (const effect of ['lure', 'distract']) {
+  test(`${effect} with fireRate x duration >= 1 cannot pin a guest forever`, () => {
+    const pin = { id: 'pin', name: 'Pin', cost: 1, range: 10, damage: 0, fireRate: 0.5,
+      effect, effectStrength: 0, effectDuration: 3, upgrades: [] };
+    const s = new GameState(makeLevel({ weaponIds: ['pin'],
+      waves: [[{ enemyId: 'guest', count: 1, intervalS: 1, delayS: 0 }]] }),
+    { weapons: [...weapons, pin], enemies });
+    s.placeTower(2, 0, 'pin');
+    s.startNextWave();
+    run(s, 1);
+    assert.equal(s.enemies.length, 1);
+    assert.ok(s.enemies[0].stallUntil > s.time, 'first shot stalls');
+    const stalledAt = s.enemies[0].distance;
+    run(s, 5);
+    assert.ok(s.enemies.length === 0 || s.enemies[0].distance > stalledAt, 'guest moves again after the stall');
+    run(s, 60);
+    assert.equal(s.enemies.length, 0, 'guest eventually leaves');
+    assert.equal(s.wine, 10 - 3);
+    assert.equal(s.phase, 'won');
+  });
+}

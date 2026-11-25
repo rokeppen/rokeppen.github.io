@@ -140,7 +140,7 @@ export class GameState {
       if (!def) continue;
       const id = this.nextEnemyId++;
       this.enemies.push({ id, enemyId, hp: def.hp, maxHp: def.hp, distance: 0,
-        stallUntil: 0, slowUntil: 0, slowFactor: 1 });
+        stallUntil: 0, stallImmuneUntil: 0, slowUntil: 0, slowFactor: 1 });
       this.events.push({ type: 'spawn', id, enemyId });
     }
   }
@@ -181,7 +181,7 @@ export class GameState {
           e.slowFactor = 1 - stats.effectStrength;
           e.slowUntil = until;
         } else if (weapon.effect === 'distract' || weapon.effect === 'lure') {
-          e.stallUntil = until;
+          this.applyStall(e, weapon.effectDuration || 0);
         }
       }
       for (const e of hit) e.hp -= stats.damage;
@@ -189,6 +189,14 @@ export class GameState {
         x: targetPos.x, y: targetPos.y });
       this.payKills();
     }
+  }
+
+  // Distract/lure: a stall is never refreshed while it runs, and after it ends the
+  // guest is immune for half the duration, so fast stallers can't pin it forever.
+  applyStall(e, duration) {
+    if (duration <= 0 || this.time < e.stallUntil || this.time < e.stallImmuneUntil) return;
+    e.stallUntil = this.time + duration;
+    e.stallImmuneUntil = e.stallUntil + 0.5 * duration;
   }
 
   payKills() {
