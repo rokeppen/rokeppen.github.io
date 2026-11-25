@@ -43,7 +43,17 @@ nav.tabs button[aria-selected="true"] { background: var(--wine); color: var(--cr
 .catalog-form p { margin: 0; }
 .catalog .field { display: grid; gap: 4px; }
 .catalog textarea, .catalog select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
-.catalog .sprite-preview { font-size: 2rem; line-height: 1; }
+.catalog .sprite-preview { font-size: 2.5rem; line-height: 1; min-height: 64px; display: flex; align-items: center; }
+.catalog img.sprite-img { width: 64px; height: 64px; object-fit: contain; }
+.catalog .sprite-thumb { display: inline-block; width: 1.4em; text-align: center; vertical-align: middle; }
+.catalog img.sprite-thumb { height: 1.4em; object-fit: contain; }
+.catalog .image-box { display: grid; gap: 8px; }
+.catalog .emoji-input { width: 6em; font-size: 1.3rem; }
+.catalog .quotes { display: grid; gap: 6px; margin-bottom: 8px; }
+.catalog .quote-row { display: flex; gap: 6px; }
+.catalog .quote-row input { flex: 1; min-width: 0; }
+.catalog .immunities { display: flex; flex-wrap: wrap; gap: 16px; }
+.catalog .check { display: inline-flex; gap: 4px; align-items: center; }
 .catalog .effect-fields { display: grid; gap: 10px; }
 .catalog .effect-fields[hidden] { display: none; }
 .catalog .actions { display: flex; gap: 8px; }

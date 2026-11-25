@@ -2,7 +2,12 @@
 // state.dataSource and calls refresh() afterwards. DB strings only ever go through
 // textContent / .value (never innerHTML).
 import { state, refresh } from './admin.js';
-import { validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, EFFECTS } from './catalog-validate.js';
+import {
+  validateWeapon, validateEnemy, levelsUsing, levelsHiddenByDelete, EFFECTS,
+  IMMUNITY_EFFECTS, MAX_QUOTES, MAX_QUOTE_LENGTH,
+} from './catalog-validate.js';
+import { ALLOWED_TYPES, validateImageFile } from './upload-validate.js';
+import { uploadSprite, removeSprite } from './upload.js';
 
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -41,20 +46,143 @@ function field(draft, key, label, kind = 'text', extra = {}) {
   return { wrap, input };
 }
 
-// Until the editor has its own fallback emoji field: an emoji sprite is its own fallback;
-// an image URL keeps the existing fallback (or the default).
-function syncFallbackSprite(item, dflt) {
+const isUrl = (s) => typeof s === 'string' && /^https?:\/\//.test(s);
+
+// Legacy items may lack fallbackSprite: an emoji sprite is its own fallback, an image URL
+// gets the default. Called before the form's dirty snapshot, so it doesn't count as a change.
+function initFallbackSprite(item, dflt) {
+  if (typeof item.fallbackSprite === 'string' && item.fallbackSprite.trim()) return;
   const sprite = typeof item.sprite === 'string' ? item.sprite.trim() : '';
-  if (sprite && !/^https?:\/\//.test(sprite)) item.fallbackSprite = sprite;
-  else if (typeof item.fallbackSprite !== 'string' || !item.fallbackSprite.trim()) item.fallbackSprite = dflt;
+  item.fallbackSprite = sprite && !isUrl(sprite) ? sprite : dflt;
 }
 
-function spriteField(draft) {
-  const { wrap, input } = field(draft, 'sprite', 'Sprite (emoji)');
-  const preview = h('span', { className: 'sprite-preview', textContent: draft.sprite ?? '' });
-  input.addEventListener('input', () => { preview.textContent = input.value; });
-  wrap.append(preview);
-  return wrap;
+// Before save: trimmed fallback; an emoji sprite always equals the fallback emoji.
+function normalizeSprite(item) {
+  if (typeof item.fallbackSprite === 'string') item.fallbackSprite = item.fallbackSprite.trim();
+  if (!isUrl(item.sprite)) item.sprite = item.fallbackSprite;
+}
+
+// A sprite as DOM: an <img> for an image URL (falls back to the emoji if it fails to load),
+// else the emoji text.
+function spriteView(sprite, fallback, className) {
+  if (!isUrl(sprite)) return h('span', { className, textContent: sprite ?? '' });
+  const img = h('img', { className, src: sprite, alt: '' });
+  img.onerror = () => img.replaceWith(h('span', { className, textContent: fallback ?? '' }));
+  return img;
+}
+
+/**
+ * Image box (Upload / Clear + preview) and the fallback emoji input, bound to draft.sprite and
+ * draft.fallbackSprite. ctx.setBusy(bool) blocks the form's Save while an upload runs.
+ * `savedSprite` is the sprite currently in the DB: images uploaded in this form and replaced
+ * before saving are removed right away (nothing references them); the saved one is only
+ * removed after the new save succeeds (see renderForm).
+ */
+function spriteFields(draft, ctx, dflt) {
+  initFallbackSprite(draft, dflt);
+  const savedSprite = ctx.savedSprite;
+  const preview = h('div', { className: 'sprite-preview' });
+  const message = h('p', { className: 'error', role: 'alert' });
+  const fileInput = h('input', { type: 'file', accept: ALLOWED_TYPES.join(','), hidden: true });
+  const upload = h('button', { type: 'button', className: 'secondary', textContent: 'Upload image' });
+  const clear = h('button', { type: 'button', className: 'secondary', textContent: 'Clear image' });
+  let busy = false;
+
+  const sync = () => {
+    preview.replaceChildren(spriteView(draft.sprite, draft.fallbackSprite, 'sprite-img'));
+    upload.disabled = busy || state.readOnly;
+    clear.disabled = busy || state.readOnly || !isUrl(draft.sprite);
+    fileInput.disabled = busy || state.readOnly;
+  };
+  const setBusy = (b) => { busy = b; ctx.setBusy(b); sync(); };
+  // Drop an image uploaded in this form that is about to be replaced (never the saved one).
+  const discardUnsaved = (url) => {
+    if (isUrl(url) && url !== savedSprite) removeSprite(state.client, url);
+  };
+
+  upload.onclick = () => { message.textContent = ''; fileInput.click(); };
+  fileInput.onchange = async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!file) return;
+    message.textContent = '';
+    const problem = validateImageFile(file);
+    if (problem) { message.textContent = problem; return; }
+    setBusy(true);
+    try {
+      const result = await uploadSprite(state.client, file);
+      if (!result.ok) { message.textContent = result.error; return; }
+      discardUnsaved(draft.sprite);
+      draft.sprite = result.url;
+    } catch (e) {
+      message.textContent = `Upload failed: ${e?.message ?? e}`;
+    } finally {
+      setBusy(false);
+    }
+  };
+  clear.onclick = () => {
+    message.textContent = '';
+    discardUnsaved(draft.sprite);
+    draft.sprite = draft.fallbackSprite;
+    sync();
+  };
+
+  const fallback = h('input', { type: 'text', value: draft.fallbackSprite ?? '', maxLength: 16, className: 'emoji-input' });
+  fallback.oninput = () => {
+    draft.fallbackSprite = fallback.value;
+    if (!isUrl(draft.sprite)) draft.sprite = fallback.value;
+    sync();
+  };
+  sync();
+
+  return [
+    h('fieldset', { className: 'image-box' }, h('legend', {}, 'Image'),
+      preview,
+      h('div', { className: 'actions' }, upload, clear),
+      h('p', { className: 'muted' }, 'PNG, JPEG, SVG or WebP, up to 1 MB. Without an image the fallback emoji is shown.'),
+      fileInput, message),
+    h('label', { className: 'field' }, h('span', {}, 'Fallback emoji (shown when there is no image or it fails to load)'), fallback),
+  ];
+}
+
+// Speech-bubble lines for a guest: add, edit, remove.
+function quotesField(draft) {
+  draft.quotes ??= [];
+  const list = h('div', { className: 'quotes' });
+  const add = h('button', { type: 'button', className: 'secondary', textContent: '+ Add quote' });
+  const renderQuotes = () => {
+    list.replaceChildren(...draft.quotes.map((q, i) => {
+      const input = h('input', { type: 'text', value: q, maxLength: MAX_QUOTE_LENGTH, placeholder: 'Something this guest says' });
+      input.oninput = () => { draft.quotes[i] = input.value; };
+      const rm = h('button', { type: 'button', className: 'secondary', textContent: 'Remove' });
+      rm.onclick = () => { draft.quotes.splice(i, 1); renderQuotes(); };
+      return h('div', { className: 'quote-row' }, input, rm);
+    }));
+    add.disabled = draft.quotes.length >= MAX_QUOTES;
+  };
+  add.onclick = () => {
+    draft.quotes.push('');
+    renderQuotes();
+    list.lastElementChild?.querySelector('input')?.focus();
+  };
+  renderQuotes();
+  return h('fieldset', {}, h('legend', {}, `Quotes (speech bubbles; up to ${MAX_QUOTES}, ${MAX_QUOTE_LENGTH} characters each)`),
+    list, add);
+}
+
+// One checkbox per effect the guest ignores (damage still applies).
+function immunityField(draft) {
+  draft.immuneTo ??= [];
+  const boxes = IMMUNITY_EFFECTS.map((fx) => {
+    const cb = h('input', { type: 'checkbox', checked: draft.immuneTo.includes(fx) });
+    cb.onchange = () => {
+      const set = new Set(draft.immuneTo);
+      if (cb.checked) set.add(fx); else set.delete(fx);
+      draft.immuneTo = IMMUNITY_EFFECTS.filter((x) => set.has(x));
+    };
+    return h('label', { className: 'check' }, cb, ` ${fx}`);
+  });
+  return h('fieldset', { className: 'immunities' }, h('legend', {}, 'Immune to (still takes damage)'), ...boxes);
 }
 
 /**
@@ -106,11 +234,17 @@ function mountCatalog(el, cfg) {
     const form = h('form', { className: 'catalog-form' });
     form.append(h('h2', {}, isNew ? `New ${cfg.noun}` : draft.name || cfg.noun));
     if (!isNew) form.append(h('p', { className: 'muted' }, `id: ${draft.id}`));
-    form.append(...cfg.buildFields(draft));
+    const savedSprite = isNew ? null : source.sprite;
+    const save = h('button', { type: 'submit', textContent: 'Save', disabled: state.readOnly });
+    let uploading = false;
+    const ctx = {
+      savedSprite,
+      setBusy: (b) => { uploading = b; save.disabled = b || state.readOnly; },
+    };
+    form.append(...cfg.buildFields(draft, ctx));
     const snapshot = JSON.stringify(draft);
     isDirty = () => JSON.stringify(draft) !== snapshot;
 
-    const save = h('button', { type: 'submit', textContent: 'Save', disabled: state.readOnly });
     const actions = h('div', { className: 'actions' }, save);
     if (!isNew) {
       const del = h('button', { type: 'button', className: 'secondary', textContent: 'Delete', disabled: state.readOnly });
@@ -128,10 +262,16 @@ function mountCatalog(el, cfg) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       error.textContent = '';
+      if (uploading) return;
       cfg.normalize(draft);
       const problems = cfg.validate(draft);
       if (problems.length) { error.textContent = problems.join('; '); return; }
-      await write(() => cfg.save(draft), error, save, () => { selectedId = draft.id; });
+      await write(() => cfg.save(draft), error, save, () => {
+        selectedId = draft.id;
+        // The previously saved image was replaced or cleared: delete it now that the DB no
+        // longer points at it (best effort, not awaited).
+        if (isUrl(savedSprite) && savedSprite !== draft.sprite) removeSprite(state.client, savedSprite);
+      });
     };
     return form;
   }
@@ -139,7 +279,8 @@ function mountCatalog(el, cfg) {
   function render() {
     const list = h('ul', { className: 'catalog-list' });
     for (const item of cfg.items()) {
-      const b = h('button', { type: 'button', className: 'secondary', textContent: `${item.sprite ?? ''} ${item.name}`.trim() });
+      const b = h('button', { type: 'button', className: 'secondary' },
+        spriteView(item.sprite, item.fallbackSprite, 'sprite-thumb'), ` ${item.name}`);
       if (item.id === selectedId) b.setAttribute('aria-current', 'true');
       b.onclick = () => select(item.id);
       list.append(h('li', {}, b));
@@ -161,12 +302,12 @@ function mountCatalog(el, cfg) {
   render();
 }
 
-function weaponFields(draft) {
+function weaponFields(draft, ctx) {
   draft.upgrades ??= [];
   const out = [
     field(draft, 'name', 'Name').wrap,
     field(draft, 'description', 'Description', 'textarea').wrap,
-    spriteField(draft),
+    ...spriteFields(draft, ctx, '❔'),
     field(draft, 'cost', 'Cost (corks)', 'number', { min: 1, step: 1 }).wrap,
     field(draft, 'range', 'Range (tiles)', 'number', { min: 0 }).wrap,
     field(draft, 'damage', 'Damage', 'number', { min: 0 }).wrap,
@@ -216,12 +357,12 @@ export function mountWeapons(el) {
     noun: 'weapon',
     items: () => state.data.weapons,
     blank: () => ({
-      name: '', description: '', sprite: '🍺', cost: 50, range: 2.5, damage: 5, fireRate: 1,
+      name: '', description: '', sprite: '🍺', fallbackSprite: '🍺', cost: 50, range: 2.5, damage: 5, fireRate: 1,
       effect: 'none', effectStrength: 0, effectDuration: 0, upgrades: [],
     }),
     normalize: (w) => {
       if (w.effect === 'none') { w.effectStrength = 0; w.effectDuration = 0; }
-      syncFallbackSprite(w, '❔');
+      normalizeSprite(w);
     },
     buildFields: weaponFields,
     validate: validateWeapon,
@@ -237,16 +378,25 @@ export function mountEnemies(el) {
   mountCatalog(el, {
     noun: 'enemy',
     items: () => state.data.enemies,
-    blank: () => ({ name: '', description: '', sprite: '🙂', hp: 20, speed: 1, reward: 5, wineDamage: 1 }),
-    normalize: (e) => syncFallbackSprite(e, '👤'),
-    buildFields: (draft) => [
+    blank: () => ({
+      name: '', description: '', sprite: '👤', fallbackSprite: '👤', hp: 20, speed: 1, reward: 5, wineDamage: 1,
+      quotes: [], immuneTo: [],
+    }),
+    normalize: (e) => {
+      normalizeSprite(e);
+      // Blank quote lines are dropped rather than reported.
+      e.quotes = (e.quotes ?? []).map((q) => String(q).trim()).filter(Boolean);
+    },
+    buildFields: (draft, ctx) => [
       field(draft, 'name', 'Name').wrap,
       field(draft, 'description', 'Description', 'textarea').wrap,
-      spriteField(draft),
+      ...spriteFields(draft, ctx, '👤'),
       field(draft, 'hp', 'HP', 'number', { min: 0 }).wrap,
       field(draft, 'speed', 'Speed (tiles/s)', 'number', { min: 0 }).wrap,
       field(draft, 'reward', 'Reward (corks)', 'number', { min: 1, step: 1 }).wrap,
       field(draft, 'wineDamage', 'Wine damage', 'number', { min: 1, step: 1 }).wrap,
+      quotesField(draft),
+      immunityField(draft),
     ],
     validate: validateEnemy,
     usedBy: levelsUsingEnemy,
