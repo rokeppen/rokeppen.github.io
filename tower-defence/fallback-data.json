@@ -5,7 +5,7 @@
       "name": "Out-of-Office Reply",
       "description": "Fires back \"I am currently away\" at anyone between you and the beer bar.",
       "sprite": "📧",
-      "cost": 200,
+      "cost": 100,
       "range": 2.5,
       "damage": 8,
       "fireRate": 1.5,
@@ -14,12 +14,12 @@
       "effectDuration": 0,
       "upgrades": [
         {
-          "cost": 160,
+          "cost": 80,
           "damage": 12,
           "fireRate": 1.8
         },
         {
-          "cost": 320,
+          "cost": 160,
           "damage": 18,
           "range": 3,
           "fireRate": 2.2
@@ -32,7 +32,7 @@
       "name": "Coffee Machine",
       "description": "Guests slow down to queue for a cappuccino at a beer party. Nobody knows which button does what.",
       "sprite": "☕",
-      "cost": 300,
+      "cost": 150,
       "range": 2.5,
       "damage": 2,
       "fireRate": 1,
@@ -41,12 +41,12 @@
       "effectDuration": 2,
       "upgrades": [
         {
-          "cost": 200,
+          "cost": 100,
           "effectStrength": 0.5,
           "range": 3
         },
         {
-          "cost": 360,
+          "cost": 180,
           "effectStrength": 0.6,
           "damage": 5,
           "fireRate": 1.5
@@ -59,7 +59,7 @@
       "name": "Café",
       "description": "A little Belgian pub corner. One guest cannot resist a trappist and sits down for a good long while.",
       "sprite": "🪑",
-      "cost": 400,
+      "cost": 200,
       "range": 3,
       "damage": 3,
       "fireRate": 0.45,
@@ -68,13 +68,13 @@
       "effectDuration": 1.5,
       "upgrades": [
         {
-          "cost": 240,
+          "cost": 120,
           "effectStrength": 0,
           "range": 3.5,
           "fireRate": 0.55
         },
         {
-          "cost": 440,
+          "cost": 220,
           "damage": 8,
           "fireRate": 0.65
         }
@@ -86,7 +86,7 @@
       "name": "Pizza Hut Delivery",
       "description": "Free pizza lures the whole crowd off course. Nobody heads for the beer bar while there is a slice left.",
       "sprite": "🍕",
-      "cost": 480,
+      "cost": 240,
       "range": 2.5,
       "damage": 0,
       "fireRate": 0.25,
@@ -95,12 +95,12 @@
       "effectDuration": 2,
       "upgrades": [
         {
-          "cost": 280,
+          "cost": 140,
           "range": 3,
           "fireRate": 0.3
         },
         {
-          "cost": 480,
+          "cost": 240,
           "range": 3.5,
           "fireRate": 0.4
         }
@@ -112,7 +112,7 @@
       "name": "HR Talk",
       "description": "A mandatory presentation on responsible kegstand conduct. Splash damage to morale.",
       "sprite": "🗣️",
-      "cost": 600,
+      "cost": 300,
       "range": 3,
       "damage": 12,
       "fireRate": 0.6,
@@ -121,12 +121,12 @@
       "effectDuration": 0,
       "upgrades": [
         {
-          "cost": 360,
+          "cost": 180,
           "damage": 18,
           "effectStrength": 1.5
         },
         {
-          "cost": 600,
+          "cost": 300,
           "damage": 26,
           "range": 3.5,
           "fireRate": 0.8,
@@ -142,8 +142,8 @@
       "name": "Recruiter",
       "description": "Has seen your profile and has \"an exciting opportunity\" for you. Mostly interested in the beer bar.",
       "sprite": "🧑‍💼",
-      "hp": 60,
-      "speed": 1.8,
+      "hp": 30,
+      "speed": 2.7,
       "reward": 10,
       "wineDamage": 1,
       "quotes": [
@@ -158,8 +158,8 @@
       "name": "Sales Rep",
       "description": "Just wants five minutes of your time. And your beer.",
       "sprite": "💼",
-      "hp": 120,
-      "speed": 1.4,
+      "hp": 60,
+      "speed": 2.1,
       "reward": 15,
       "wineDamage": 1,
       "quotes": [
@@ -174,8 +174,8 @@
       "name": "Quick Question",
       "description": "It will only take a second. It never does. Mostly asks where the beer is.",
       "sprite": "❓",
-      "hp": 30,
-      "speed": 3,
+      "hp": 15,
+      "speed": 4.5,
       "reward": 8,
       "wineDamage": 1,
       "quotes": [
@@ -190,8 +190,8 @@
       "name": "Facilities Guy",
       "description": "Has a toolbox, a ladder and a legitimate reason to be near the beer bar. Tanky.",
       "sprite": "🧰",
-      "hp": 800,
-      "speed": 0.9,
+      "hp": 300,
+      "speed": 2.1,
       "reward": 60,
       "wineDamage": 5,
       "quotes": [
@@ -206,8 +206,8 @@
       "name": "Wine Snob",
       "description": "Came for the Pinot and found a beer party. Cannot be distracted by anything you pour.",
       "sprite": "🍷",
-      "hp": 240,
-      "speed": 1.2,
+      "hp": 120,
+      "speed": 1.8,
       "reward": 25,
       "wineDamage": 2,
       "quotes": [
@@ -453,7 +453,7 @@
           {
             "enemyId": "recruiter",
             "count": 6,
-            "intervalS": 1.5,
+            "intervalS": 0.34,
             "delayS": 0
           }
         ],
@@ -461,62 +461,40 @@
           {
             "enemyId": "recruiter",
             "count": 8,
-            "intervalS": 1.2,
+            "intervalS": 0.25,
             "delayS": 0
           },
           {
             "enemyId": "quick-question",
+            "count": 4,
+            "intervalS": 0.25,
+            "delayS": 1
+          },
+          {
+            "enemyId": "sales-rep",
             "count": 3,
-            "intervalS": 2,
-            "delayS": 4
-          }
-        ],
-        [
-          {
-            "enemyId": "sales-rep",
-            "count": 6,
-            "intervalS": 1.5,
-            "delayS": 0
-          },
-          {
-            "enemyId": "recruiter",
-            "count": 6,
-            "intervalS": 1.5,
-            "delayS": 3
-          }
-        ],
-        [
-          {
-            "enemyId": "quick-question",
-            "count": 10,
-            "intervalS": 0.8,
-            "delayS": 0
-          },
-          {
-            "enemyId": "sales-rep",
-            "count": 6,
-            "intervalS": 1.5,
-            "delayS": 3
+            "intervalS": 0.5,
+            "delayS": 1
           }
         ],
         [
           {
             "enemyId": "recruiter",
-            "count": 10,
-            "intervalS": 1,
+            "count": 8,
+            "intervalS": 0.25,
             "delayS": 0
           },
           {
             "enemyId": "sales-rep",
-            "count": 8,
-            "intervalS": 1.2,
-            "delayS": 4
+            "count": 6,
+            "intervalS": 0.25,
+            "delayS": 1
           },
           {
             "enemyId": "quick-question",
-            "count": 8,
-            "intervalS": 0.8,
-            "delayS": 8
+            "count": 6,
+            "intervalS": 0.25,
+            "delayS": 2
           }
         ]
       ],
@@ -819,167 +797,93 @@
         [
           {
             "enemyId": "recruiter",
-            "count": 8,
-            "intervalS": 1.2,
+            "count": 5,
+            "intervalS": 0.25,
+            "delayS": 0
+          },
+          {
+            "enemyId": "quick-question",
+            "count": 3,
+            "intervalS": 0.25,
+            "delayS": 1
+          }
+        ],
+        [
+          {
+            "enemyId": "sales-rep",
+            "count": 5,
+            "intervalS": 0.25,
+            "delayS": 0
+          },
+          {
+            "enemyId": "quick-question",
+            "count": 5,
+            "intervalS": 0.25,
+            "delayS": 1
+          },
+          {
+            "enemyId": "recruiter",
+            "count": 5,
+            "intervalS": 0.25,
+            "delayS": 1
+          },
+          {
+            "enemyId": "wine-snob",
+            "count": 1,
+            "intervalS": 1,
+            "delayS": 1
+          }
+        ],
+        [
+          {
+            "enemyId": "sales-rep",
+            "count": 4,
+            "intervalS": 0.25,
             "delayS": 0
           },
           {
             "enemyId": "quick-question",
             "count": 4,
-            "intervalS": 1.5,
-            "delayS": 3
-          }
-        ],
-        [
-          {
-            "enemyId": "sales-rep",
-            "count": 8,
-            "intervalS": 1.2,
-            "delayS": 0
-          },
-          {
-            "enemyId": "quick-question",
-            "count": 6,
-            "intervalS": 1,
-            "delayS": 4
-          }
-        ],
-        [
-          {
-            "enemyId": "recruiter",
-            "count": 12,
-            "intervalS": 0.9,
-            "delayS": 0
-          },
-          {
-            "enemyId": "sales-rep",
-            "count": 6,
-            "intervalS": 1.5,
-            "delayS": 4
-          }
-        ],
-        [
-          {
-            "enemyId": "quick-question",
-            "count": 14,
-            "intervalS": 0.6,
-            "delayS": 0
-          },
-          {
-            "enemyId": "recruiter",
-            "count": 8,
-            "intervalS": 1,
-            "delayS": 2
-          },
-          {
-            "enemyId": "sales-rep",
-            "count": 6,
-            "intervalS": 1.4,
-            "delayS": 6
-          }
-        ],
-        [
-          {
-            "enemyId": "facilities-guy",
-            "count": 1,
-            "intervalS": 1,
-            "delayS": 0
-          },
-          {
-            "enemyId": "recruiter",
-            "count": 10,
-            "intervalS": 1,
-            "delayS": 3
-          },
-          {
-            "enemyId": "quick-question",
-            "count": 8,
-            "intervalS": 0.8,
-            "delayS": 6
-          }
-        ],
-        [
-          {
-            "enemyId": "sales-rep",
-            "count": 14,
-            "intervalS": 0.9,
-            "delayS": 0
-          },
-          {
-            "enemyId": "quick-question",
-            "count": 12,
-            "intervalS": 0.6,
-            "delayS": 3
-          },
-          {
-            "enemyId": "recruiter",
-            "count": 10,
-            "intervalS": 0.9,
-            "delayS": 8
+            "intervalS": 0.2,
+            "delayS": 1
           },
           {
             "enemyId": "wine-snob",
-            "count": 3,
-            "intervalS": 3,
-            "delayS": 2
+            "count": 2,
+            "intervalS": 0.5,
+            "delayS": 1
           }
         ],
         [
           {
             "enemyId": "facilities-guy",
             "count": 2,
-            "intervalS": 6,
-            "delayS": 0
-          },
-          {
-            "enemyId": "sales-rep",
-            "count": 10,
             "intervalS": 1,
-            "delayS": 2
-          },
-          {
-            "enemyId": "quick-question",
-            "count": 14,
-            "intervalS": 0.5,
-            "delayS": 8
-          },
-          {
-            "enemyId": "wine-snob",
-            "count": 4,
-            "intervalS": 2.5,
-            "delayS": 4
-          }
-        ],
-        [
-          {
-            "enemyId": "facilities-guy",
-            "count": 3,
-            "intervalS": 5,
             "delayS": 0
           },
           {
             "enemyId": "recruiter",
-            "count": 16,
-            "intervalS": 0.7,
-            "delayS": 2
+            "count": 14,
+            "intervalS": 0.1,
+            "delayS": 0
           },
           {
             "enemyId": "sales-rep",
             "count": 14,
-            "intervalS": 0.9,
-            "delayS": 5
+            "intervalS": 0.1,
+            "delayS": 1
           },
           {
             "enemyId": "quick-question",
-            "count": 16,
-            "intervalS": 0.5,
-            "delayS": 10
+            "count": 30,
+            "intervalS": 0.1,
+            "delayS": 2
           },
           {
             "enemyId": "wine-snob",
             "count": 6,
-            "intervalS": 2,
-            "delayS": 3
+            "intervalS": 0.34,
+            "delayS": 1
           }
         ]
       ],

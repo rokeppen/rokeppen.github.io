@@ -79,9 +79,12 @@ export function playSensibly(state) {
 // Runs a whole level with the given bot ('sensible' or 'idle', which only ends turns).
 export function runGame(level, catalog, { bot = 'sensible', rng } = {}) {
   const state = new GameState(level, catalog, rng ? { rng } : {});
+  const kegsLostByWave = new Array(state.totalWaves).fill(0); // index 0 = wave 1
   while (!state.over) {
     if (bot === 'sensible') playSensibly(state);
-    state.endTurn();
+    for (const e of state.endTurn().events) {
+      if (e.type === 'leak') kegsLostByWave[state.waveIndex - 1] += e.wineDamage;
+    }
   }
-  return { phase: state.phase, turn: state.turn, endReason: state.endReason, wine: state.wine };
+  return { phase: state.phase, turn: state.turn, endReason: state.endReason, wine: state.wine, kegsLostByWave };
 }

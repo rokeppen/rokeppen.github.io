@@ -25,12 +25,16 @@ test('there are two starter levels to check', () => {
   assert.deepEqual(data.levels.map((l) => l.id), ['level-1', 'level-2']);
 });
 
+// Demo pacing: a judge clicks End turn every round, so games must stay short.
+const MAX_WIN_TURNS = { 'level-1': 40, 'level-2': 70 };
+
 for (const level of data.levels) {
   for (const seed of SEEDS) {
-    test(`${level.id}: the sensible bot wins in under 300 turns (seed ${seed})`, () => {
+    test(`${level.id}: the sensible bot wins within ${MAX_WIN_TURNS[level.id]} turns (seed ${seed})`, () => {
       const r = runGame(level, catalog, { bot: 'sensible', rng: lcg(seed) });
       assert.equal(r.phase, 'won', JSON.stringify(r));
       assert.ok(r.turn < 300, `took ${r.turn} turns`);
+      assert.ok(r.turn <= MAX_WIN_TURNS[level.id], `took ${r.turn} turns`);
     });
 
     test(`${level.id}: the idle bot loses on kegs in under 300 turns (seed ${seed})`, () => {
@@ -50,6 +54,15 @@ test('level 1 is easier than level 2: the bot keeps a larger share of its kegs',
     return sum / SEEDS.length;
   };
   assert.ok(share(l1) > share(l2), `${share(l1)} vs ${share(l2)}`);
+});
+
+test('level 2 has tension: the sensible bot loses at least 1 keg in a late wave', () => {
+  const l2 = data.levels.find((l) => l.id === 'level-2');
+  for (const seed of SEEDS) {
+    const { kegsLostByWave } = runGame(l2, catalog, { rng: lcg(seed) });
+    const late = kegsLostByWave.slice(Math.floor(kegsLostByWave.length / 2));
+    assert.ok(late.reduce((a, b) => a + b, 0) >= 1, JSON.stringify(kegsLostByWave));
+  }
 });
 
 // --- bot heuristic ---
