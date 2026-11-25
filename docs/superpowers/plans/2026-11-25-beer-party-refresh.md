@@ -91,7 +91,8 @@ DB: `weapons.fallback_sprite text`, `enemies.quotes jsonb default '[]'`, `enemie
 - [ ] **Step 2: Run `npm test`.** Expected: FAIL.
 - [ ] **Step 3: Edit `fallback-data.json`.**
 - [ ] **Step 4: Run `npm test` and `npm run seed`.** Expected: PASS, and `seed.sql` reports 5 weapons, 5 enemies, 2 levels.
-- [ ] **Step 5: Commit** `feat(td): beer party content`.
+- [ ] **Step 5: Build the single upgrade file the author asked for.** Add an `npm run upgrade-sql` script (`scripts/make-upgrade.js`) that writes `supabase/upgrade-beer-party.sql` as the migration followed by the seed, with a header comment explaining it is safe to re-run. Run it and commit the generated file.
+- [ ] **Step 6: Commit** `feat(td): beer party content`.
 
 ### Task 3: Simulation: immunity and quote events
 
