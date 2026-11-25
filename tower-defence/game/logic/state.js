@@ -121,7 +121,7 @@ export class GameState {
   // Steps the guest would take next guests' turn if nothing changes.
   previewSteps(e) {
     if (e.stalledTurns > 0) return 0;
-    return Math.floor(e.credit + this.speedOf(e) * e.slowFactor + EPS);
+    return Math.floor(e.credit + this.gainOf(e) + EPS);
   }
 
   // Pays the action bonus, resolves the guests' turn and starts the next player turn.
@@ -196,7 +196,7 @@ export class GameState {
           e.stallImmuneTurns -= 1;
           ts.immuneNow.add(e);
         }
-        e.credit += this.speedOf(e) * e.slowFactor;
+        e.credit += this.gainOf(e);
         steps = Math.floor(e.credit + EPS);
         e.credit = Math.max(0, e.credit - steps);
       }
@@ -308,7 +308,8 @@ export class GameState {
     } else if (weapon.effect === 'splash') {
       hit = this.enemies.filter((e) => dist(targetPos.x, targetPos.y, this.posOf(e)) <= stats.effectStrength + EPS);
     }
-    this.emit({ type: 'shot', towerId: tower.id, targetIds: targets.map((e) => e.id), x: targetPos.x, y: targetPos.y });
+    this.emit({ type: 'shot', towerId: tower.id, targetIds: targets.map((e) => e.id),
+      hitIds: hit.map((e) => e.id), x: targetPos.x, y: targetPos.y });
 
     const duration = weapon.effectDuration || 0;
     for (const e of targets) {
@@ -388,6 +389,12 @@ export class GameState {
 
   speedOf(e) {
     return Math.max(this.enemyDefs.get(e.enemyId).speed || 0, MIN_SPEED);
+  }
+
+  // Tiles gained per guests' turn: speed times any slow, never below MIN_SPEED, so a
+  // full-strength slow cannot pin a guest.
+  gainOf(e) {
+    return Math.max(this.speedOf(e) * e.slowFactor, MIN_SPEED);
   }
 
   statsOf(tower) {
