@@ -6,7 +6,7 @@ import {
   newLevel, duplicateLevel, applyTool, extendPath, toggleBlocked, eraseTile,
   resizeLevel, canSave, MIN_SIZE, MAX_SIZE, prepareForEditor,
   setWeapons, addWave, removeWave, moveWave, addGroup, updateGroup, removeGroup, waveSummary,
-  setGuests, guestWaves, applyGenerated, DEFAULT_BAR_SPRITE,
+  setGuests, guestWaves, applyGenerated, DEFAULT_BAR_SPRITE, spawnWarnings,
 } from './editor-state.js';
 import { SIZES, DIFFICULTIES, canGenerate, generateLevel, randomSeed } from '../shared/generator.js';
 import { isUrl } from '../shared/mapping.js';
@@ -418,7 +418,8 @@ function detailsSection() {
 
 function saveSection() {
   const level = ed.draft;
-  const { ok, errors } = canSave(level, catalog());
+  const { ok, errors: problems } = canSave(level, catalog());
+  const errors = [...problems, ...spawnWarnings(level)];
   const dirty = isDirty();
   const saved = isSaved(level.id);
   const saveBtn = h('button', {

@@ -709,8 +709,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   // A guest piece with its icon, HP bar and status emoji (its "→n" preview is drawn per
-  // tile by updateTileMarks, so guests sharing a tile show one pill). Its logical position `pos` (pixels, tweened tile to tile) is separate from the container,
-  // which animateEnemies() places with the bob and the shared-tile offset.
+  // tile by updateTileMarks, so guests sharing a tile show one pill). Its logical position `pos`
+  // (pixels, tweened tile to tile) is separate from the container, which
+  // animateEnemies() places with the bob and the shared-tile offset.
   addEnemySprite(id, enemyId, index, popIn) {
     if (this.enemySprites.has(id)) return this.enemySprites.get(id);
     const def = this.enemyDefs.get(enemyId);

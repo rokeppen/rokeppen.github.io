@@ -36,7 +36,8 @@ export class EndScene extends Phaser.Scene {
     const ph = 380;
     const bg = addCard(this, 0, 0, pw, ph, 'card');
     const icon = label(this, 0, -ph / 2 + 64, r.won ? '🍻' : '🍺', { size: 64 }).setOrigin(0.5);
-    const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!' : 'The kegs ran dry…', {
+    const title = label(this, 0, -ph / 2 + 134, r.won ? 'The kegs are safe!'
+      : r.reason === 'too-long' ? 'Last orders! The party ran too long' : 'The kegs ran dry…', {
       size: 34, bold: true, color: r.won ? PALETTE.goodText : PALETTE.danger,
     }).setOrigin(0.5);
     const turns = Number.isFinite(r.turns) ? ` in ${r.turns} turn${r.turns === 1 ? '' : 's'}` : '';

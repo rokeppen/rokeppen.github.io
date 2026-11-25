@@ -54,7 +54,7 @@ export class Hud {
     const kb = scene.input.keyboard;
     if (kb) {
       // Space during the guests' turn is simply ignored (no toast for a held key).
-      kb.on('keydown-SPACE', () => { if (!scene.busy) scene.endTurn(); });
+      kb.on('keydown-SPACE', (e) => { if (!e?.repeat && !scene.busy) scene.endTurn(); });
       kb.on('keydown-B', () => scene.ringBell());
       kb.on('keydown-F', () => this.toggleFast());
       kb.on('keydown-M', () => this.toggleMute());

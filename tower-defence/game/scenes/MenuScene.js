@@ -104,8 +104,9 @@ export class MenuScene extends Phaser.Scene {
   bestText(level) {
     const total = Array.isArray(level.waves) ? level.waves.length : 0;
     const best = loadBest(level.id);
+    const reached = best ? Math.min(best.wave, total) : 0;
     if (best && best.cleared) return `🏆 Bar defended · all ${total} waves`;
-    if (best && best.wave > 0) return `Best: held the bar to wave ${best.wave} of ${total}`;
+    if (best && reached > 0) return `Best: held the bar to wave ${reached} of ${total}`;
     return `Not played yet · ${total} wave${total === 1 ? '' : 's'}`;
   }
 

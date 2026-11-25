@@ -186,6 +186,20 @@ function setupProblems(level, catalog) {
   return errors;
 }
 
+// Advisory only (never blocks saving): groups that spawn faster than 0.2 turns apart.
+export function spawnWarnings(level) {
+  const out = [];
+  (Array.isArray(level.waves) ? level.waves : []).forEach((wave, wi) => {
+    if (!Array.isArray(wave)) return;
+    wave.forEach((g, gi) => {
+      if (!g || !isNum(g.intervalS) || g.intervalS <= 0 || g.intervalS >= 0.2) return;
+      const per = Math.ceil(1 / g.intervalS);
+      out.push(`Wave ${wi + 1}, group ${gi + 1}: very fast spawns: up to ${per} guests per turn at the door.`);
+    });
+  });
+  return out;
+}
+
 // ok only when nothing is wrong, so what is saved is exactly what the game plays.
 // `errors` lists every reason; validateLevel's errors are surfaced and block saving too.
 export function canSave(level, catalog) {
