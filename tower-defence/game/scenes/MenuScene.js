@@ -1,9 +1,10 @@
 // Level select. Starts GameScene with { levelId }.
 // Up to 5 levels: one column. More: two columns of 5 per page, with page arrows.
-// Each card shows the level's beer bar icon and the best wave reached (or "cleared") from
-// localStorage. A "how to play" overlay opens on the first launch and from the "?" button.
+// Each card shows the level's beer bar icon and the best wave reached (or "cleared", with the
+// high score in caps) from localStorage. A "how to play" overlay opens on the first launch
+// and from the "?" button.
 import { PALETTE, FONT, EMOJI_FONT, MENU_WIDTH, MENU_HEIGHT, css } from '../theme.js';
-import { loadStars, loadBest, howToSeen, markHowToSeen } from '../progress.js';
+import { loadStars, loadBest, loadHighScore, howToSeen, markHowToSeen } from '../progress.js';
 import { isRightButton, label, icon, barIcon, Button } from '../ui/widgets.js';
 import { addBackground, addCard, CARD_PAD } from '../ui/textures.js';
 import { howToPlay } from '../how-to.js';
@@ -105,7 +106,10 @@ export class MenuScene extends Phaser.Scene {
     const total = Array.isArray(level.waves) ? level.waves.length : 0;
     const best = loadBest(level.id);
     const reached = best ? Math.min(best.wave, total) : 0;
-    if (best && best.cleared) return `🏆 Bar defended · all ${total} waves`;
+    if (best && best.cleared) {
+      const score = loadHighScore(level.id);
+      return `🏆 Bar defended · all ${total} waves${score === null ? '' : ` · high score ${score} 🧢`}`;
+    }
     if (best && reached > 0) return `Best: held the bar to wave ${reached} of ${total}`;
     return `Not played yet · ${total} wave${total === 1 ? '' : 's'}`;
   }

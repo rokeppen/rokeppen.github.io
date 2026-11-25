@@ -70,3 +70,39 @@ export function markHowToSeen() {
     // Shown again next launch; harmless.
   }
 }
+
+// Best score per cleared level: the caps 🧢 held at the end of a won run (cards made caps a
+// score). One key per level id, holding { score }. Lost runs don't count, so the number
+// always means "the best party you survived".
+const SCORE_PREFIX = 'friday-drinks:v2:score:';
+
+export function loadHighScore(levelId) {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SCORE_PREFIX + levelId) || 'null');
+    const score = parsed && typeof parsed === 'object' ? parsed.score : null;
+    return Number.isFinite(score) && score >= 0 ? score : null;
+  } catch {
+    return null;
+  }
+}
+
+// Records a cleared run's score. Returns { best, previous, isNew }; previous is null on a
+// first clear. With storage blocked it still reports this run as new.
+export function recordHighScore(levelId, score) {
+  const previous = loadHighScore(levelId);
+  if (previous !== null && score <= previous) return { best: previous, previous, isNew: false };
+  try {
+    window.localStorage.setItem(SCORE_PREFIX + levelId, JSON.stringify({ score }));
+  } catch {
+    // Not remembered; the game still works.
+  }
+  return { best: score, previous, isNew: true };
+}
+
+// End screen line for a recordHighScore() result ('' when there is none, e.g. a loss).
+export function highScoreLine(record) {
+  if (!record) return '';
+  if (!record.isNew) return `High score: ${record.best} 🧢`;
+  if (record.previous === null) return '🏅 New high score! First clear.';
+  return `🏅 New high score! Beat ${record.previous} 🧢 by ${record.best - record.previous}.`;
+}
